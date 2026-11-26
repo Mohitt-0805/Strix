@@ -37,9 +37,33 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def init_db(engine: Engine) -> None:
-    """Create schema tables if needed and verify SQLite connectivity."""
+    """Create schema tables, append-only audit triggers, and verify connectivity."""
+    import backend.app.models  # noqa: F401  # Register ORM models with Base.metadata
+
     Base.metadata.create_all(bind=engine)
-    with engine.connect() as conn:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+                BEFORE UPDATE ON audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_log is append-only: UPDATE is forbidden');
+                END;
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+                BEFORE DELETE ON audit_log
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_log is append-only: DELETE is forbidden');
+                END;
+                """
+            )
+        )
         conn.execute(text("SELECT 1"))
 
 

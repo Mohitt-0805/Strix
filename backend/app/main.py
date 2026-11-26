@@ -16,6 +16,10 @@ from backend.app.config import (
 )
 from backend.app.db import check_db, create_db_engine, create_session_factory, init_db
 from backend.app.errors import AppError, register_error_handlers
+from backend.app.routes.audit import router as audit_router
+from backend.app.routes.auth import router as auth_router
+from backend.app.routes.users import router as users_router
+from backend.app.security import LoginThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.engine = engine
     application.state.session_factory = session_factory
     application.state.media_tools = check_media_tools()
+    application.state.login_throttle = LoginThrottle()
 
     application.add_middleware(
         CORSMiddleware,
@@ -67,6 +72,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     register_error_handlers(application)
+    application.include_router(auth_router)
+    application.include_router(users_router)
+    application.include_router(audit_router)
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:
