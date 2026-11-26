@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db import Base
@@ -47,3 +47,33 @@ class AuditLog(Base):
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     entry_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class Clip(Base):
+    """Uploaded CCTV clip metadata (stored file path is relative to DATA_DIR)."""
+
+    __tablename__ = "clips"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    codec: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    container: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    rotation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    clip_start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    clip_start_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    atm_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    zone_polygon_norm: Mapped[list[list[float]] | None] = mapped_column(JSON, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uploaded_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )

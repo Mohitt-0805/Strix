@@ -266,3 +266,82 @@ curl -s http://127.0.0.1:8000/audit/verify \
   "reason": null
 }
 ```
+
+---
+
+## Clips & Signed Files Endpoints
+
+### `POST /clips`
+
+Stream-upload a video clip (`mp4, avi, mov, mkv, wmv, flv, mpeg, mpg`), compute SHA-256, probe metadata with `ffprobe`, and convert `creation_time` to `DISPLAY_TZ`.
+
+**Request (`multipart/form-data`):**
+```bash
+curl -s -X POST http://127.0.0.1:8000/clips \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@sample.mp4" \
+  -F "atm_id=ATM-001" \
+  -F "notes=Test upload"
+```
+
+**Response (`201 Created`):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "original_filename": "sample.mp4",
+  "stored_path": "uploads/550e8400-e29b-41d4-a716-446655440000/sample.mp4",
+  "sha256": "<sha256>",
+  "size_bytes": 123456,
+  "duration_sec": 5.0,
+  "fps": 10.0,
+  "width": 320,
+  "height": 240,
+  "codec": "h264",
+  "container": "mov,mp4,m4a,3gp,3g2,mj2",
+  "rotation": 0,
+  "clip_start_time": "2026-11-26T15:30:00",
+  "clip_start_source": "ffprobe_converted",
+  "atm_id": "ATM-001",
+  "zone_polygon_norm": null,
+  "notes": "Test upload",
+  "uploaded_by": 1,
+  "created_at": "2026-11-26T13:05:00.000000",
+  "video_url": "/files?p=uploads%2F...&uid=1&exp=...&sig=..."
+}
+```
+
+---
+
+### `GET /clips` & `GET /clips/{id}`
+
+List clips newest-first or fetch a single clip by UUID (`Bearer` token required).
+
+---
+
+### `PATCH /clips/{id}`
+
+Update `clip_start_time` (sets `clip_start_source="user"`), `atm_id`, `zone_polygon_norm` (at least 3 `[x, y]` points in `0..1`), or `notes`.
+
+---
+
+### `GET /clips/{id}/video`
+
+Stream the uploaded clip video with HTTP `Range` (`206 Partial Content`) support. Add `?download=1` for `Content-Disposition: attachment` and a `download_video` audit entry.
+
+**Request:**
+```bash
+curl -i -r 0-99 -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/clips/$CLIP_ID/video
+```
+
+---
+
+### `GET /files`
+
+Serve files inside `DATA_DIR/uploads` or `DATA_DIR/outputs` using an HMAC-SHA256 signed URL (`p`, `uid`, `exp`, `sig`), with HTTP `Range` (`206`) and `?download=1` audit support. No `Authorization` header required.
+
+**Request:**
+```bash
+curl -i -r 0-99 "http://127.0.0.1:8000$VIDEO_URL"
+```
+

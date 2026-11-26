@@ -18,6 +18,8 @@ from backend.app.db import check_db, create_db_engine, create_session_factory, i
 from backend.app.errors import AppError, register_error_handlers
 from backend.app.routes.audit import router as audit_router
 from backend.app.routes.auth import router as auth_router
+from backend.app.routes.clips import router as clips_router
+from backend.app.routes.files import router as files_router
 from backend.app.routes.users import router as users_router
 from backend.app.security import LoginThrottle
 
@@ -75,6 +77,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(users_router)
     application.include_router(audit_router)
+    application.include_router(clips_router)
+    application.include_router(files_router)
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:

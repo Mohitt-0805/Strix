@@ -87,3 +87,55 @@ class AuditVerifyResponse(BaseModel):
     checked_count: int
     first_bad_id: int | None = None
     reason: str | None = None
+
+
+class ClipOut(BaseModel):
+    """Clip metadata plus a ready-made signed video URL."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    original_filename: str
+    stored_path: str
+    sha256: str
+    size_bytes: int
+    duration_sec: float
+    fps: float | None
+    width: int
+    height: int
+    codec: str | None
+    container: str | None
+    rotation: int
+    clip_start_time: datetime | None
+    clip_start_source: Literal["ffprobe_converted", "user", "unknown"]
+    atm_id: str | None
+    zone_polygon_norm: list[list[float]] | None
+    notes: str | None
+    uploaded_by: int
+    created_at: datetime
+    video_url: str
+
+
+class ClipPatchRequest(BaseModel):
+    """Editable clip metadata fields for PATCH /clips/{id}."""
+
+    clip_start_time: datetime | None = None
+    atm_id: str | None = Field(default=None, max_length=64)
+    zone_polygon_norm: list[list[float]] | None = None
+    notes: str | None = None
+
+    @field_validator("zone_polygon_norm")
+    @classmethod
+    def validate_polygon(cls, value: list[list[float]] | None) -> list[list[float]] | None:
+        """Require at least 3 [x, y] points normalized within [0, 1]."""
+        if value is None:
+            return None
+        if len(value) < 3:
+            raise ValueError("zone_polygon_norm must have at least 3 points.")
+        for point in value:
+            if len(point) != 2:
+                raise ValueError("Each polygon point must be [x, y].")
+            x, y = point
+            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+                raise ValueError("Polygon coordinates must be between 0 and 1.")
+        return value
