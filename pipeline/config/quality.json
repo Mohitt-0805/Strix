@@ -1,0 +1,50 @@
+{
+  "_comment": "Starting quality weights and thresholds to be tuned on real ATM data.",
+  "weights": {
+    "frontalness": 0.25,
+    "occlusion_free": 0.25,
+    "face_size": 0.22,
+    "sharpness": 0.16,
+    "illumination": 0.12
+  },
+  "sharpness": {
+    "lap_var_ref": 450.0,
+    "blur_thresh": 0.25
+  },
+  "face_size": {
+    "target_px": 112.0,
+    "small_face_px": 60.0
+  },
+  "frontalness": {
+    "max_yaw_deg": 45.0,
+    "max_pitch_down_deg": 30.0
+  },
+  "illumination": {
+    "ideal_low": 90.0,
+    "ideal_high": 170.0,
+    "low_light_mean": 65.0,
+    "min_contrast_std": 25.0
+  },
+  "occlusion": {
+    "edge_margin_px": 2.0,
+    "partial_penalty": 0.60,
+    "det_score_ref": 0.7
+  },
+  "flags": {
+    "profile_yaw_deg": 45.0,
+    "looking_down_pitch_deg": -30.0,
+    "small_face_px": 60.0,
+    "blur_sharpness_thresh": 0.25,
+    "low_light_mean_thresh": 65.0
+  },
+  "match_ready": {
+    "min_det_score": 0.7,
+    "max_abs_yaw": 35.0,
+    "min_pitch": -25.0,
+    "min_face_width_px": 60.0
+  },
+  "reliability": {
+    "high_min_score": 0.70,
+    "medium_min_score": 0.50
+  }
+}
