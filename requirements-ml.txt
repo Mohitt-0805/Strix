@@ -1,0 +1,8 @@
+# Install PyTorch with CUDA first using the official selector at https://pytorch.org/get-started/locally/
+# (for example, CUDA 12.x wheel for Linux + Python 3.10/3.11), then install this file.
+torchvision
+opencv-contrib-python
+supervision
+insightface
+onnxruntime-gpu
+numpy

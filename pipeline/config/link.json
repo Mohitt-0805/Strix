@@ -1,0 +1,12 @@
+{
+  "min_dwell_sec": 1.0,
+  "max_step_sec": 1.0,
+  "low_margin_ratio": 0.2,
+  "bottom_edge_ratio": 0.98,
+  "estimated_anchor_height_ratio": 0.85,
+  "high_dwell_frac": 0.4,
+  "high_anchor_frac": 0.5,
+  "medium_dwell_frac": 0.15,
+  "medium_anchor_frac": 0.3,
+  "many_tracks_threshold": 3
+}

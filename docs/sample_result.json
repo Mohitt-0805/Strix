@@ -1,0 +1,68 @@
+{
+  "clip_id": "atm_clip_03",
+  "transaction_time": "2026-11-22T14:32:10",
+  "person_track_id": 4,
+  "best_frames": [
+    {
+      "frame_id": 142,
+      "frame_path": "data/outputs/atm_clip_03/frame_0142.jpg",
+      "timestamp_sec": 5.68,
+      "quality_score": 0.86,
+      "reliability": "High",
+      "flags": [],
+      "enhanced": false,
+      "enhancement": null,
+      "metrics": {
+        "sharpness": 0.88,
+        "face_size": 112.0,
+        "pose_yaw": 4.2,
+        "illumination": 0.79,
+        "occlusion": 0.05
+      },
+      "embedding_path": "data/outputs/atm_clip_03/emb_0142.npy"
+    },
+    {
+      "frame_id": 158,
+      "frame_path": "data/outputs/atm_clip_03/frame_0158.jpg",
+      "timestamp_sec": 6.32,
+      "quality_score": 0.67,
+      "reliability": "Medium",
+      "flags": ["low_resolution"],
+      "enhanced": true,
+      "enhancement": {
+        "enhanced_path": "data/outputs/atm_clip_03/frame_0158_enh_x4.jpg",
+        "method": "espcn",
+        "scale": 4,
+        "model_version": "espcn_x4_v1",
+        "crop_box": [210, 95, 64, 64],
+        "search_embedding_source": "original"
+      },
+      "metrics": {
+        "sharpness": 0.61,
+        "face_size": 64.0,
+        "pose_yaw": -9.5,
+        "illumination": 0.72,
+        "occlusion": 0.08
+      },
+      "embedding_path": "data/outputs/atm_clip_03/emb_0158.npy"
+    },
+    {
+      "frame_id": 171,
+      "frame_path": "data/outputs/atm_clip_03/frame_0171.jpg",
+      "timestamp_sec": 6.84,
+      "quality_score": 0.44,
+      "reliability": "Low",
+      "flags": ["motion_blur", "low_illumination"],
+      "enhanced": false,
+      "enhancement": null,
+      "metrics": {
+        "sharpness": 0.39,
+        "face_size": 58.0,
+        "pose_yaw": 16.8,
+        "illumination": 0.41,
+        "occlusion": 0.18
+      },
+      "embedding_path": "data/outputs/atm_clip_03/emb_0171.npy"
+    }
+  ]
+}
