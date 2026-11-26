@@ -345,3 +345,56 @@ Serve files inside `DATA_DIR/uploads` or `DATA_DIR/outputs` using an HMAC-SHA256
 curl -i -r 0-99 "http://127.0.0.1:8000$VIDEO_URL"
 ```
 
+---
+
+## Processing & Runs Endpoints
+
+### `POST /clips/{id}/process`
+
+Validate transaction time and window cap (`2 * window_sec * sample_fps <= 200`), queue a single-worker background job, and return `202 Accepted`.
+
+**Request:**
+```bash
+curl -s -X POST http://127.0.0.1:8000/clips/$CLIP_ID/process \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"transaction_time":"2026-11-26T15:30:02","window_sec":2,"sample_fps":2.0,"tracker":"iou"}'
+```
+
+**Response (`202 Accepted`):**
+```json
+{
+  "run_id": 1,
+  "status": "queued"
+}
+```
+
+---
+
+### `GET /runs/{run_id}`
+
+Poll run status (`queued` | `running` | `done` | `failed`), stage, progress, errors, and hydrated `result` when `done`.
+
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/runs/1 -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### `GET /clips/{id}/runs`
+
+List all processing runs for a clip newest-first.
+
+---
+
+### `GET /runs/{run_id}/result`
+
+Return the hydrated `PipelineResult` for a completed run with signed `image_url`, `crop_url`, `enhanced_url`, `video_url`, `pipeline_mode`, `notice`, and `show_selection_reason`.
+
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
+```
+
+

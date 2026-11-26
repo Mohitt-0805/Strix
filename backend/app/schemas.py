@@ -139,3 +139,85 @@ class ClipPatchRequest(BaseModel):
             if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
                 raise ValueError("Polygon coordinates must be between 0 and 1.")
         return value
+
+
+class ProcessClipRequest(BaseModel):
+    """Request body for POST /clips/{id}/process."""
+
+    transaction_time: datetime
+    window_sec: float = Field(default=10.0, ge=1.0, le=100.0)
+    sample_fps: float = Field(default=2.0, ge=0.5, le=5.0)
+    tracker: Literal["iou", "bytetrack"] = "iou"
+    atm_id: str | None = Field(default=None, max_length=64)
+
+
+class RunAcceptedResponse(BaseModel):
+    """202 Accepted response when a run is queued."""
+
+    run_id: int
+    status: Literal["queued", "running", "done", "failed"]
+
+
+class FrameOut(BaseModel):
+    """Candidate evidence frame hydrated with signed URLs."""
+
+    frame_id: str
+    frame_path: str
+    crop_path: str | None = None
+    embedding_path: str
+    timestamp_sec: float
+    quality_score: float
+    reliability: Literal["High", "Medium", "Low"]
+    flags: list[str]
+    enhanced: bool
+    enhancement: dict[str, Any] | None = None
+    metrics: dict[str, Any]
+    match_ready: bool | None = None
+    rank_reason: str | None = None
+    selected: bool = False
+    image_url: str
+    crop_url: str | None = None
+    enhanced_url: str | None = None
+
+
+class RunResultOut(BaseModel):
+    """Full hydrated run result with signed media URLs and verification notice."""
+
+    run_id: int
+    clip_id: str
+    pipeline_mode: Literal["fake", "real"]
+    banner: str | None = None
+    notice: str
+    video_url: str
+    transaction_time: str
+    person_track_id: int | None = None
+    best_frames: list[FrameOut]
+    link_confidence: str | None = None
+    link_reason: str | None = None
+    selection_reason: str | None = None
+    show_selection_reason: bool = False
+    timings_ms: dict[str, float] | None = None
+
+
+class RunStatusOut(BaseModel):
+    """Run status and metadata (includes hydrated result when done)."""
+
+    run_id: int
+    clip_id: str
+    status: Literal["queued", "running", "done", "failed"]
+    stage: str | None = None
+    progress: float | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    transaction_time: datetime
+    tx_offset_sec: float
+    window_sec: float
+    sample_fps: float
+    tracker: str
+    atm_id: str | None = None
+    pipeline_mode: Literal["fake", "real"]
+    created_by: int
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result: RunResultOut | None = None
