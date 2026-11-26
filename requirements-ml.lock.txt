@@ -1,0 +1,10 @@
+insightface==2.1
+numpy==2.4.6
+onnx==1.23.2
+onnxruntime-gpu==1.32.0
+opencv-contrib-python==5.1.0.95
+pytest==9.2.0
+scipy==1.17.1
+supervision==0.25.1
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
