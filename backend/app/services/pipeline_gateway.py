@@ -80,7 +80,7 @@ def execute_pipeline_for_run(
     run_fn = get_run()
     data_root = settings.resolved_data_dir
     clip_abs_path = from_rel(clip.stored_path, data_root, allowed_roots=("uploads",))
-    out_dir_abs = (data_root / "outputs").resolve()
+    out_dir_abs = (data_root / "outputs" / clip.id / f"run_{run.id}").resolve()
     out_dir_abs.mkdir(parents=True, exist_ok=True)
 
     candidate_kwargs: dict[str, Any] = {

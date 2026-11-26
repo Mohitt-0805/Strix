@@ -397,4 +397,61 @@ Return the hydrated `PipelineResult` for a completed run with signed `image_url`
 curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
 ```
 
+---
+
+## Search Endpoints
+
+### `POST /search`
+
+Search processed frames from **other** clips using a completed run frame's 512-d L2-normalised embedding. Persists the result in `searches` and logs a `search` audit entry.
+
+**Request:**
+```bash
+curl -s -X POST http://127.0.0.1:8000/search \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"run_id":1,"frame_id":"142","top_k":10}'
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "search_id": 1,
+  "run_id": 1,
+  "frame_id": "142",
+  "top_k": 10,
+  "matches": [
+    {
+      "clip_id": "<other-clip-uuid>",
+      "filename": "A_two.mp4",
+      "run_id": 2,
+      "frame_id": "142",
+      "timestamp_sec": 5.68,
+      "score": 0.978,
+      "reliability": "High",
+      "flags": [],
+      "crop_url": "/files?...",
+      "frame_url": "/files?..."
+    }
+  ],
+  "notice": "Possible matches only. A human investigator must verify every result.",
+  "score_note": "uncalibrated similarity, tune on sample data",
+  "scope": "frames from processed runs only",
+  "created_at": "2026-11-26T16:38:00.000000"
+}
+```
+
+---
+
+### `GET /searches/{id}`
+
+Retrieve a saved search result with freshly signed `crop_url` and `frame_url` links.
+
+---
+
+### `POST /clips/{id}/index`
+
+Reserved clip-wide indexing endpoint. Returns `501 NOT_AVAILABLE` until `pipeline.index_clip` is implemented.
+
+
 

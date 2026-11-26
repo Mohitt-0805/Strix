@@ -21,9 +21,11 @@ from backend.app.routes.auth import router as auth_router
 from backend.app.routes.clips import router as clips_router
 from backend.app.routes.files import router as files_router
 from backend.app.routes.runs import router as runs_router
+from backend.app.routes.search import router as search_router
 from backend.app.routes.users import router as users_router
 from backend.app.security import LoginThrottle
 from backend.app.services.jobs import JobManager, mark_stale_runs_failed
+from backend.app.services.search_index import SearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or get_settings()
     engine = create_db_engine(cfg.db_path)
     session_factory = create_session_factory(engine)
-    job_manager = JobManager(session_factory=session_factory, settings=cfg)
+    search_index = SearchIndex(embed_dim=cfg.embed_dim)
+    job_manager = JobManager(
+        session_factory=session_factory,
+        settings=cfg,
+        search_index=search_index,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -56,8 +63,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         stale_count = mark_stale_runs_failed(session_factory)
         if stale_count:
             logger.warning("Marked %d stale queued/running run(s) as SERVER_RESTARTED.", stale_count)
+        with session_factory() as db:
+            indexed_count = search_index.rebuild_from_db(db, cfg.resolved_data_dir)
         application.state.media_tools = check_media_tools()
-        logger.info("Strix backend started (pipeline_mode=%s).", cfg.pipeline_mode)
+        logger.info(
+            "Strix backend started (pipeline_mode=%s, search_backend=%s, indexed_frames=%d).",
+            cfg.pipeline_mode,
+            search_index.backend_name,
+            indexed_count,
+        )
         yield
         job_manager.shutdown(wait=True)
         engine.dispose()
@@ -72,6 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.session_factory = session_factory
     application.state.media_tools = check_media_tools()
     application.state.login_throttle = LoginThrottle()
+    application.state.search_index = search_index
     application.state.job_manager = job_manager
 
     application.add_middleware(
@@ -88,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(clips_router)
     application.include_router(files_router)
     application.include_router(runs_router)
+    application.include_router(search_router)
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:

@@ -221,3 +221,40 @@ class RunStatusOut(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result: RunResultOut | None = None
+
+
+class SearchRequest(BaseModel):
+    """Request body for POST /search."""
+
+    run_id: int
+    frame_id: str | int
+    top_k: int = Field(default=10, ge=1, le=100)
+
+
+class SearchMatchOut(BaseModel):
+    """Single cross-clip similarity match."""
+
+    clip_id: str
+    filename: str
+    run_id: int
+    frame_id: str
+    timestamp_sec: float
+    score: float
+    reliability: Literal["High", "Medium", "Low"]
+    flags: list[str]
+    crop_url: str | None = None
+    frame_url: str
+
+
+class SearchResponse(BaseModel):
+    """Search response with mandatory verification notice and uncalibrated score note."""
+
+    search_id: int
+    run_id: int
+    frame_id: str
+    top_k: int
+    matches: list[SearchMatchOut]
+    notice: str
+    score_note: str
+    scope: str
+    created_at: datetime

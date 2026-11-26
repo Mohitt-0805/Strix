@@ -147,3 +147,25 @@ class FrameRecord(Base):
     enhancement: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class Search(Base):
+    """Persisted similarity search query and raw match results."""
+
+    __tablename__ = "searches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("runs.id"), nullable=False, index=True
+    )
+    frame_pk: Mapped[int] = mapped_column(
+        Integer, ForeignKey("frames.id"), nullable=False, index=True
+    )
+    top_k: Mapped[int] = mapped_column(Integer, nullable=False)
+    results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    created_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )

@@ -158,13 +158,14 @@ def process_clip(
     settings: Settings = Depends(get_app_settings),
 ) -> RunAcceptedResponse:
     """Validate transaction time and window cap, queue run, and return 202."""
-    if 2.0 * payload.window_sec * payload.sample_fps > MAX_SAMPLED_FRAMES:
+    estimated_frames = (2.0 * payload.window_sec + 2.0) * payload.sample_fps
+    if estimated_frames > MAX_SAMPLED_FRAMES:
         raise AppError(
             status_code=422,
             code="WINDOW_CAP_EXCEEDED",
             detail=(
-                f"2 * window_sec * sample_fps must be <= {MAX_SAMPLED_FRAMES} "
-                f"(got {2.0 * payload.window_sec * payload.sample_fps:.1f})."
+                f"(2 * window_sec + 2) * sample_fps must be <= {MAX_SAMPLED_FRAMES} "
+                f"(got {estimated_frames:.1f})."
             ),
         )
 

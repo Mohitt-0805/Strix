@@ -190,14 +190,23 @@ def test_tx_offset_validation_and_window_cap_422(
     assert "2026-11-26T15:30:30" in out_of_range.json()["detail"]
     assert "duration_sec" in out_of_range.json()["detail"]
 
-    # Window cap exceeded: 2 * 50 * 3.0 = 300 > 200 -> 422 WINDOW_CAP_EXCEEDED.
-    cap = client.post(
+    # Window cap exceeded with 1s margin each side:
+    # (2 * 49 + 2) * 2.0 = 200.0 (allowed); (2 * 50 + 2) * 2.0 = 204.0 > 200 -> 422.
+    margin_cap = client.post(
         f"/clips/{clip_id}/process",
         headers=headers,
-        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 50, "sample_fps": 3.0},
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 50, "sample_fps": 2.0},
     )
-    assert cap.status_code == 422
-    assert cap.json()["code"] == "WINDOW_CAP_EXCEEDED"
+    assert margin_cap.status_code == 422
+    assert margin_cap.json()["code"] == "WINDOW_CAP_EXCEEDED"
+
+    allowed_edge = client.post(
+        f"/clips/{clip_id}/process",
+        headers=headers,
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 49, "sample_fps": 2.0},
+    )
+    assert allowed_edge.status_code == 202
+    assert _poll_run(client, headers, allowed_edge.json()["run_id"])["status"] == "done"
 
     # Clear clip_start_time -> 422 asking for it.
     client.patch(f"/clips/{clip_id}", headers=headers, json={"clip_start_time": None})
@@ -465,6 +474,63 @@ def test_two_jobs_run_sequentially(
     assert _poll_run(client, headers, r2)["status"] == "done"
     assert len(intervals) == 2
     assert intervals[0][1] <= intervals[1][0]
+
+
+def test_unique_absolute_out_dir_per_run_and_duplicate_filename(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gateway passes unique absolute DATA_DIR/outputs/<clip_uuid>/run_<run_id> per run."""
+    raw = _make_clip_bytes(tmp_path, "dup_clip.mp4")
+    headers = _create_auth_headers(client, username="inv_outdir")
+    clip1 = _upload_sample(client, headers, "dup_clip.mp4", raw)
+    clip2 = _upload_sample(client, headers, "dup_clip.mp4", raw)
+
+    seen_out_dirs: list[tuple[str, str]] = []
+
+    def _spy_run(clip_path, tx_offset_sec, window_sec=10, out_dir="data/outputs"):
+        seen_out_dirs.append((Path(clip_path).parent.name, out_dir))
+        return PipelineResult(
+            clip_id=Path(clip_path).parent.name,
+            transaction_time="2026-11-26T15:30:02",
+            person_track_id=1,
+            best_frames=[],
+            selection_reason="No face detected",
+        )
+
+    import pipeline.adapter as adapter
+
+    monkeypatch.setattr(adapter, "get_run", lambda: _spy_run)
+
+    r1a = client.post(
+        f"/clips/{clip1['id']}/process",
+        headers=headers,
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 2},
+    ).json()["run_id"]
+    r1b = client.post(
+        f"/clips/{clip1['id']}/process",
+        headers=headers,
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 2},
+    ).json()["run_id"]
+    r2a = client.post(
+        f"/clips/{clip2['id']}/process",
+        headers=headers,
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 2},
+    ).json()["run_id"]
+
+    assert _poll_run(client, headers, r1a)["status"] == "done"
+    assert _poll_run(client, headers, r1b)["status"] == "done"
+    assert _poll_run(client, headers, r2a)["status"] == "done"
+
+    data_root = client.app.state.settings.resolved_data_dir
+    expected = [
+        str((data_root / "outputs" / clip1["id"] / f"run_{r1a}").resolve()),
+        str((data_root / "outputs" / clip1["id"] / f"run_{r1b}").resolve()),
+        str((data_root / "outputs" / clip2["id"] / f"run_{r2a}").resolve()),
+    ]
+    actual = [od for _, od in seen_out_dirs]
+    assert actual == expected
+    assert all(Path(od).is_absolute() for od in actual)
+    assert len(set(actual)) == 3
 
 
 def test_fake_person_key_embeddings_and_no_heavy_ml_imports() -> None:
