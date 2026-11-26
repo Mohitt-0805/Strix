@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pytest
@@ -133,7 +134,12 @@ def test_search_same_person_ranks_higher_excludes_query_clip_and_rebuilds(
         assert max(b1_scores) < 0.3
         assert matches[0]["clip_id"] == clip_a2
 
-        # Signed URLs on matches work directly.
+        # Signed URLs on matches work directly and point to the right files (frame vs crop).
+        for m in matches:
+            frame_p = parse_qs(urlparse(m["frame_url"]).query)["p"][0]
+            crop_p = parse_qs(urlparse(m["crop_url"]).query)["p"][0]
+            assert frame_p.endswith(f"/frame_{m['frame_id']}.jpg")
+            assert crop_p.endswith(f"/crop_{m['frame_id']}.jpg")
         assert client.get(matches[0]["crop_url"]).status_code == 200
         assert client.get(matches[0]["frame_url"]).status_code == 200
 
