@@ -30,7 +30,7 @@ class Enhancement(BaseModel):
 class Frame(BaseModel):
     """Single candidate evidence frame for a tracked person."""
 
-    frame_id: int
+    frame_id: int | str
     frame_path: str
     timestamp_sec: float
     quality_score: float = Field(ge=0.0, le=1.0)
@@ -40,6 +40,10 @@ class Frame(BaseModel):
     enhancement: Optional[Enhancement] = None
     metrics: Metrics
     embedding_path: str
+    # Proposed additions (optional with defaults for backward compatibility).
+    match_ready: Optional[bool] = None
+    rank_reason: Optional[str] = None
+    crop_path: Optional[str] = None
 
 
 class PipelineResult(BaseModel):
@@ -47,8 +51,13 @@ class PipelineResult(BaseModel):
 
     clip_id: str
     transaction_time: str
-    person_track_id: int
+    person_track_id: Optional[int] = None
     best_frames: list[Frame]
+    # Proposed additions (optional with defaults for backward compatibility).
+    link_confidence: Optional[str] = None
+    link_reason: Optional[str] = None
+    selection_reason: Optional[str] = None
+    timings_ms: Optional[dict[str, float]] = None
 
 
 def load_result(path: str | Path) -> PipelineResult:

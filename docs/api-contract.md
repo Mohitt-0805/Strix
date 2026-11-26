@@ -76,3 +76,23 @@ def fake_enhance(
 ```
 
 Crops `[x, y, w, h]` and resizes by `scale` using Pillow Lanczos, burns `ENHANCED` into the pixels with `ImageDraw`, saves next to the original as `<name>_enh_x<scale>.jpg`, and leaves the original file unmodified.
+
+---
+
+## Proposed additions, need team agreement
+
+The following optional fields (with `null` / `None` defaults so `docs/sample_result.json` remains valid unchanged) were added to `pipeline/contract.py` for end-to-end pipeline observability:
+
+### `PipelineResult` additions
+- `person_track_id`: `integer | null` (may be `null` when no person is linked in the transaction window)
+- `link_confidence`: `string | null` (e.g. `"High"`, `"Medium"`, `"Low"`)
+- `link_reason`: `string | null` (explanation of how the track was linked or why none was chosen)
+- `selection_reason`: `string | null` (explanation when no frontal face or no face is visible)
+- `timings_ms`: `object | null` (stage-by-stage elapsed time in milliseconds)
+
+### `Frame` additions
+- `frame_id`: `integer | string` (supports `"f_<ms>"` string IDs alongside legacy integer IDs)
+- `match_ready`: `boolean | null` (whether the face meets frontal/clarity thresholds for matching)
+- `rank_reason`: `string | null` (short summary of why the frame ranked in its position)
+- `crop_path`: `string | null` (path to the saved face crop `.jpg`)
+
