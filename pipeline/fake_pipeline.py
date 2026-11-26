@@ -17,21 +17,23 @@ def run(
     clip_path: str | Path,
     tx_offset_sec: float,
     window_sec: float = 10,
+    atm_id: str = "",
+    transaction_time: str | None = None,
+    sample_fps: float = 2.0,
+    tracker: str = "iou",
+    out_dir: str | Path = "data/outputs",
 ) -> PipelineResult:
     """Return a validated PipelineResult from docs/sample_result.json.
 
-    Args:
-        clip_path: Path to the input video clip (used to derive clip_id).
-        tx_offset_sec: Transaction timestamp offset in seconds.
-        window_sec: Search window around transaction time in seconds.
-
-    Returns:
-        PipelineResult with clip_id set from the clip filename stem.
+    Accepts the same keyword arguments as pipeline.run_pipeline.run().
     """
-    _ = (tx_offset_sec, window_sec)
+    _ = (tx_offset_sec, window_sec, atm_id, sample_fps, tracker, out_dir)
     result = load_result(SAMPLE_RESULT_PATH)
     clip_id = Path(clip_path).stem or result.clip_id
-    return result.model_copy(update={"clip_id": clip_id})
+    updates: dict[str, object] = {"clip_id": clip_id}
+    if transaction_time is not None:
+        updates["transaction_time"] = transaction_time
+    return result.model_copy(update=updates)
 
 
 def fake_enhance(
