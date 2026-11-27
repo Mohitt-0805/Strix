@@ -16,6 +16,7 @@ FLAG_VOCAB: dict[str, tuple[str, ...]] = {
         "small face",
         "profile view",
         "looking down",
+        "overlapping person",
     ),
     "planned": (
         "cap",

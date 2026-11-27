@@ -103,7 +103,7 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 
 ### Constants (`pipeline/contract.py`)
 - `RELIABILITY_VALUES`: `("High", "Medium", "Low")`
-- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down")`
+- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down", "overlapping person")`
 - `FLAG_VOCAB["planned"]`: `("cap", "mask", "helmet")`
 
 ### `IndexResult`, `IndexTrack`, `IndexFace` (`pipeline/index_clip.py`)

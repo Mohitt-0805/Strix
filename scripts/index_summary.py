@@ -10,6 +10,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from pipeline.contract import IndexResult, load_result
 from pipeline.embeddings import cosine, load_embedding
+from pipeline.faces import box_iou
 
 
 _REL_ORDER = {"High": 2, "Medium": 1, "Low": 0}
@@ -86,13 +87,46 @@ def summarize_index(index_dir: Path, compare_paths: list[Path] | None = None) ->
     return "\n".join(lines)
 
 
+def find_duplicate_faces(index_dir: Path, iou_thresh: float = 0.5) -> list[tuple[float, int, int, float]]:
+    """Return list of (t, track_a, track_b, iou) where two tracks share a face box."""
+    index_json = index_dir / "index.json"
+    if not index_json.exists():
+        raise FileNotFoundError(f"index.json not found in {index_dir}")
+
+    idx_res = IndexResult.model_validate_json(index_json.read_text(encoding="utf-8"))
+    by_t: dict[float, list[tuple[int, list[float]]]] = {}
+    for tr in idx_res.tracks:
+        for face in tr.faces:
+            by_t.setdefault(round(float(face.t), 3), []).append((tr.track_id, face.face_box))
+
+    dups: list[tuple[float, int, int, float]] = []
+    for t_val, entries in sorted(by_t.items()):
+        for i in range(len(entries)):
+            for j in range(i + 1, len(entries)):
+                tid_a, box_a = entries[i]
+                tid_b, box_b = entries[j]
+                iou = box_iou(box_a, box_b)
+                if iou > iou_thresh:
+                    dups.append((t_val, tid_a, tid_b, iou))
+    return dups
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize an index directory and compare with result.json files.")
     parser.add_argument("index_dir", type=Path, help="Directory containing index.json and index.npz")
     parser.add_argument("--compare", type=Path, nargs="*", default=[], help="result.json paths to compare against")
+    parser.add_argument("--check-duplicates", action="store_true", help="Exit 1 if two tracks share a face box (IoU > 0.5)")
     args = parser.parse_args()
 
     print(summarize_index(args.index_dir, args.compare))
+    if args.check_duplicates:
+        dups = find_duplicate_faces(args.index_dir)
+        if dups:
+            print("\nDUPLICATE FACES DETECTED (IoU > 0.5):")
+            for t_val, tid_a, tid_b, iou in dups:
+                print(f"  t={t_val:.2f}s | track {tid_a} vs track {tid_b} | IoU={iou:.3f}")
+            return 1
+        print("\nOK: No duplicate faces across tracks (IoU > 0.5).")
     return 0
 
 

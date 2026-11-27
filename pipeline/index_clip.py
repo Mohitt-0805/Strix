@@ -94,7 +94,7 @@ def index_clip(
 
     from pipeline.detect_track import Track, detect_persons
     from pipeline.embeddings import save_embedding
-    from pipeline.faces import detect_faces_on_track
+    from pipeline.faces import assign_faces_to_tracks, detect_faces_on_track
     from pipeline.frames import iter_sampled_frames, video_info
     from pipeline.link_transaction import link_transaction, load_zone
     from pipeline.quality import score_track_faces
@@ -205,6 +205,35 @@ def index_clip(
     tracks = trk.finish()
     _emit_progress(progress_cb, "faces", 0.55, f"Extracting faces for {len(tracks)} tracks")
 
+    person_boxes_by_time: dict[float, list[tuple[int, list[float]]]] = {}
+    for tr in tracks:
+        for o in tr.observations:
+            person_boxes_by_time.setdefault(round(float(o["t"]), 6), []).append((int(tr.track_id), list(o["box"])))
+
+    # 1) Detect candidate faces per track, then enforce one-face-per-track per timestamp.
+    raw_faces_by_track: dict[int, list[Any]] = {}
+    for idx, tr in enumerate(tracks):
+        cand_obs = _select_candidate_observations(tr.observations, max_even=12)
+        sub_track = Track(track_id=tr.track_id, observations=cand_obs)
+        t_face = time.perf_counter()
+        try:
+            raw_faces_by_track[int(tr.track_id)] = detect_faces_on_track(sub_track, frames_by_time)
+        except Exception as exc:
+            raise ModelLoadError(f"Face model failed: {exc}") from exc
+        timings_ms["faces"] += (time.perf_counter() - t_face) * 1000.0
+        _emit_progress(
+            progress_cb,
+            "faces",
+            0.55 + 0.25 * ((idx + 1) / max(1, len(tracks))),
+            f"Detected faces for track {tr.track_id} ({idx + 1}/{len(tracks)})",
+        )
+
+    by_t_tid: dict[float, dict[int, Any]] = {}
+    for tid, f_list in raw_faces_by_track.items():
+        for fo in f_list:
+            by_t_tid.setdefault(round(float(fo.t), 6), {})[tid] = fo
+    assigned_by_t_tid = {t_key: assign_faces_to_tracks(obs_map) for t_key, obs_map in by_t_tid.items()}
+
     index_tracks: list[IndexTrack] = []
     all_embeddings: list[Any] = []
     all_metadata: list[dict[str, Any]] = []
@@ -213,6 +242,7 @@ def index_clip(
     half_win = 0.5 * (actual_end - float(start_sec))
 
     for idx, tr in enumerate(tracks):
+        tid = int(tr.track_id)
         dwell_val: float | None = None
         if zone_poly is not None and frame_shape is not None:
             fh, fw = frame_shape
@@ -222,18 +252,17 @@ def index_clip(
             else:
                 dwell_val = 0.0
 
-        cand_obs = _select_candidate_observations(tr.observations, max_even=12)
-        sub_track = Track(track_id=tr.track_id, observations=cand_obs)
-
-        t_face = time.perf_counter()
-        try:
-            face_obs = detect_faces_on_track(sub_track, frames_by_time)
-        except Exception as exc:
-            raise ModelLoadError(f"Face model failed: {exc}") from exc
-        timings_ms["faces"] += (time.perf_counter() - t_face) * 1000.0
+        face_obs = [assigned_by_t_tid[round(float(fo.t), 6)][tid] for fo in raw_faces_by_track[tid]]
+        other_boxes_for_track = {
+            float(fo.t): [
+                box for other_tid, box in person_boxes_by_time.get(round(float(fo.t), 6), [])
+                if other_tid != tid
+            ]
+            for fo in face_obs
+        }
 
         t_qual = time.perf_counter()
-        scored = score_track_faces(face_obs, frames_by_time)
+        scored = score_track_faces(face_obs, frames_by_time, other_person_boxes_by_time=other_boxes_for_track)
         timings_ms["quality"] += (time.perf_counter() - t_qual) * 1000.0
 
         found = [s for s in scored if s.face_obs.face_found and s.face_obs.embedding is not None]
@@ -242,7 +271,8 @@ def index_clip(
         track_faces: list[IndexFace] = []
         reason: str | None = None
         if not found:
-            reason = "No face found"
+            reasons = [getattr(fo, "reason", None) for fo in face_obs if getattr(fo, "reason", None)]
+            reason = str(reasons[0]) if reasons else "No face found"
         elif not valid:
             reason = f"Face under {int(min_face_px)} px"
         else:
