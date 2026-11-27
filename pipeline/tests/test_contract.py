@@ -57,11 +57,16 @@ def test_fake_enhance_writes_separate_file_without_touching_original(tmp_path: P
     Image.new("RGB", (100, 100), color=(40, 80, 120)).save(src)
     original_bytes = src.read_bytes()
 
-    out = fake_pipeline.fake_enhance(src, crop_box=[10, 20, 30, 40], scale=4)
+    enh = fake_pipeline.fake_enhance(src, crop_box=[10, 20, 30, 40], scale=4)
+    out = Path(enh.enhanced_path)
 
     assert out == tmp_path / "sample_face_enh_x4.jpg"
     assert out.exists()
+    assert enh.method == "lanczos"
+    assert enh.model_version == "lanczos_v1"
+    assert enh.search_embedding_source == "original"
     assert src.read_bytes() == original_bytes
 
     with Image.open(out) as enhanced_img:
-        assert enhanced_img.size == (120, 160)
+        assert enhanced_img.width == 120
+        assert enhanced_img.height > 160

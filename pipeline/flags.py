@@ -70,6 +70,7 @@ def compute_flags(
     frame_bgr: Any,
     metrics: Any,
     cfg: dict[str, Any],
+    other_person_boxes: list[list[float]] | None = None,
 ) -> list[str]:
     """Compute descriptive quality/pose flags from pixels and pose only."""
     if not getattr(face_obs, "face_found", False) or face_obs.face_box is None:
@@ -113,5 +114,12 @@ def compute_flags(
 
     if face_obs.pitch is not None and float(face_obs.pitch) < float(flag_cfg["looking_down_pitch_deg"]):
         flags.append("looking down")
+
+    if other_person_boxes and getattr(face_obs, "person_box", None) is not None:
+        from pipeline.faces import box_iou
+
+        pbox = [float(v) for v in face_obs.person_box]
+        if any(box_iou(pbox, other) > 0.2 for other in other_person_boxes):
+            flags.append("overlapping person")
 
     return flags

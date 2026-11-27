@@ -81,18 +81,67 @@ Crops `[x, y, w, h]` and resizes by `scale` using Pillow Lanczos, burns `ENHANCE
 
 ## Proposed additions, need team agreement
 
-The following optional fields (with `null` / `None` defaults so `docs/sample_result.json` remains valid unchanged) were added to `pipeline/contract.py` for end-to-end pipeline observability:
+Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, `RELIABILITY_VALUES`). All new fields are optional with defaults so `docs/sample_result.json` continues to validate unchanged.
 
-### `PipelineResult` additions
-- `person_track_id`: `integer | null` (may be `null` when no person is linked in the transaction window)
-- `link_confidence`: `string | null` (e.g. `"High"`, `"Medium"`, `"Low"`)
-- `link_reason`: `string | null` (explanation of how the track was linked or why none was chosen)
-- `selection_reason`: `string | null` (explanation when no frontal face or no face is visible)
-- `timings_ms`: `object | null` (stage-by-stage elapsed time in milliseconds)
+### `PipelineResult` optional/updated fields
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `person_track_id` | `Optional[int]` | `None` | Track ID of the linked person, or `null` if no person/face is found. |
+| `link_confidence` | `Optional[str]` | `None` | Linking confidence (`"High"`, `"Medium"`, `"Low"`). |
+| `link_reason` | `Optional[str]` | `None` | Explanation of track linking or why no track was chosen. |
+| `link_low_margin` | `Optional[bool]` | `False` | `true` when the top two candidate tracks had a narrow score margin. |
+| `selection_reason` | `Optional[str]` | `None` | Explanation when no frontal face or no face is visible. |
+| `timings_ms` | `Optional[dict[str, float]]` | `None` | Stage-by-stage elapsed time in milliseconds. |
 
-### `Frame` additions
-- `frame_id`: `integer | string` (supports `"f_<ms>"` string IDs alongside legacy integer IDs)
-- `match_ready`: `boolean | null` (whether the face meets frontal/clarity thresholds for matching)
-- `rank_reason`: `string | null` (short summary of why the frame ranked in its position)
-- `crop_path`: `string | null` (path to the saved face crop `.jpg`)
+### `Frame` optional/updated fields
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `frame_id` | `int \| str` | required | Supports `"f_<ms>"` string IDs alongside legacy integer IDs. |
+| `match_ready` | `Optional[bool]` | `None` | Whether the face meets frontal/clarity thresholds for matching. |
+| `rank_reason` | `Optional[str]` | `None` | Short summary of why the frame ranked in its position. |
+| `crop_path` | `Optional[str]` | `None` | Path to the saved face crop `.jpg`. |
+| `face_box` | `Optional[list[int]]` | `None` | `[x, y, w, h]` detected face box in full-frame pixels. |
+
+### Constants (`pipeline/contract.py`)
+- `RELIABILITY_VALUES`: `("High", "Medium", "Low")`
+- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down", "overlapping person")`
+- `FLAG_VOCAB["planned"]`: `("cap", "mask", "helmet")`
+
+### `IndexResult`, `IndexTrack`, `IndexFace` (`pipeline/index_clip.py`)
+| Model | Field | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `IndexResult` | `clip_id`, `start_sec`, `end_sec` | `str`, `float`, `float` | required | Indexed clip ID and time range. |
+| `IndexResult` | `tracks` | `list[IndexTrack]` | `[]` | Every tracked person in `[start_sec, end_sec]`. |
+| `IndexResult` | `index_npz_path`, `index_json_path` | `str`, `str` | required | Saved `index.npz` (`N x 512` float32 embeddings + `metadata_json`) and `index.json`. |
+| `IndexResult` | `total_embeddings`, `timings_ms` | `int`, `Optional[dict[str, float]]` | `0`, `None` | Total indexed embeddings and stage timings. |
+| `IndexTrack` | `track_id`, `first_t`, `last_t` | `int`, `float`, `float` | required | Track ID and time span. |
+| `IndexTrack` | `n_observations`, `short_track` | `int`, `bool` | `0`, `False` | Total track observations; `true` when `n_observations < 2`. |
+| `IndexTrack` | `dwell_sec_in_zone` | `Optional[float]` | `None` | Zone dwell time (only populated when a zone is given). |
+| `IndexTrack` | `faces`, `reason` | `list[IndexFace]`, `Optional[str]` | `[]`, `None` | Top `faces_per_track` faces, or reason when empty (`"No face found"`, `"Face under <N> px"`). |
+| `IndexFace` | `t`, `quality_score`, `reliability`, `match_ready`, `flags`, `face_box`, `crop_path`, `frame_path`, `embedding_path` | `float`, `float`, `Literal`, `bool`, `list[str]`, `list[float]`, `str`, `str`, `str` | required | Indexed face metadata and saved artifact paths. |
+
+### `SearchResult` & `SearchMatch` (`pipeline/compare.py`)
+| Model | Field | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `SearchResult` | `basis` | `"original" \| "enhanced" \| "none"` | `"original"` | Which crop's embedding drove ranking (`enhanced` only when original fails). |
+| `SearchResult` | `banner` | `str` | `"Possible leads only. A person must verify."` | Mandatory human-verification notice. |
+| `SearchResult` | `reliability_note` | `Optional[str]` | `None` | Set to `"based on ENHANCED image, low reliability"` when `basis == "enhanced"`. |
+| `SearchResult` | `top_level_warning`, `reason` | `Optional[str]`, `Optional[str]` | `None`, `None` | Set when any match warns of disagreement, or when no embedding could be extracted. |
+| `SearchResult` | `matches` | `list[SearchMatch]` | `[]` | Ranked top-K leads. |
+| `SearchMatch` | `track_id`, `t`, `similarity` | `int`, `float`, `float` | required | Matched track ID, timestamp, and primary cosine similarity. |
+| `SearchMatch` | `similarity_secondary`, `delta`, `warning` | `Optional[float]`, `Optional[float]`, `Optional[str]` | `None` | Secondary (enhanced) similarity, `abs` difference, and warning if `delta > disagreement_warn`. |
+| `SearchMatch` | `crop_path`, `reliability`, `match_ready` | `str`, `Optional[str]`, `Optional[bool]` | `""`, `None`, `None` | Matched crop path and quality metadata. |
+
+### Errors (`pipeline/errors.py`)
+| Exception | `code` | When raised |
+| --- | --- | --- |
+| `PipelineError` | `PIPELINE_ERROR` | Base class for all pipeline errors. |
+| `VideoNotFoundError` | `VIDEO_NOT_FOUND` | Input `clip_path` does not exist. |
+| `VideoUnreadableError` | `VIDEO_UNREADABLE` | `ffprobe` / OpenCV cannot read the clip or find a video stream. |
+| `InvalidArgumentError` | `INVALID_ARGUMENT` | `tx_offset_sec` outside `[0, duration]`, `window_sec <= 0`, `sample_fps <= 0`, invalid `tracker`, or invalid `zone_polygon_norm`. |
+| `ZoneNotFoundError` | `ZONE_NOT_FOUND` | Unknown `atm_id` (when `zone_polygon_norm` is `None`). |
+| `ModelLoadError` | `MODEL_LOAD_ERROR` | Required ML model fails to load. |
+
+> Note: "No person in zone" and "no face found" are **not** errors; they return a valid `PipelineResult` with `best_frames=[]` and `person_track_id=None`.
+
 

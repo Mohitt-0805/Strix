@@ -44,10 +44,22 @@ def get_device() -> str:
 
 def load_person_detector(device: str | None = None) -> Any:
     """Load Faster R-CNN MobileNetV3 Large 320 FPN with default COCO weights in eval mode."""
+    import os
+    from pathlib import Path
+    import torch
     from torchvision.models.detection import (
         FasterRCNN_MobileNet_V3_Large_320_FPN_Weights,
         fasterrcnn_mobilenet_v3_large_320_fpn,
     )
+
+    model_dir = Path(os.environ.get("MODEL_DIR", "data/models"))
+    torch_dir = model_dir / "torch"
+    legacy_dir = Path(torch.hub.get_dir())
+    if torch_dir.is_dir() and any(torch_dir.iterdir()):
+        torch.hub.set_dir(str(torch_dir))
+    elif not (legacy_dir.is_dir() and any(legacy_dir.iterdir())):
+        torch_dir.mkdir(parents=True, exist_ok=True)
+        torch.hub.set_dir(str(torch_dir))
 
     target_device = device or get_device()
     weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT

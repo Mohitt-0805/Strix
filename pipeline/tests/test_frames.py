@@ -48,3 +48,59 @@ def test_extract_2_to_6s_at_2fps(tmp_path: Path) -> None:
         # Verify the sampled frame number is within one source frame of exp_ts * 25.
         frame_num = round(ts * 25)
         assert abs(frame_num - exp_ts * 25) <= 1.0
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg/ffprobe not installed on PATH",
+)
+def test_vfr_timestamps_match_ffprobe_pts(tmp_path: Path) -> None:
+    """iter_sampled_frames uses real per-frame PTS on VFR clips within 40 ms."""
+    import json
+
+    vfr_path = tmp_path / "vfr_uneven.mp4"
+    cmd_gen = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=320x240:rate=25:duration=4",
+        "-vf",
+        "select='gt(sin(n*0.7),0)'",
+        "-vsync",
+        "vfr",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        str(vfr_path),
+    ]
+    subprocess.run(cmd_gen, check=True, capture_output=True)
+
+    info = video_info(vfr_path)
+    assert info["vfr_suspected"] is True
+
+    cmd_pts = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_packets",
+        "-show_entries",
+        "packet=pts_time",
+        "-of",
+        "json",
+        str(vfr_path),
+    ]
+    proc = subprocess.run(cmd_pts, check=True, capture_output=True, text=True)
+    pts_list = [float(p["pts_time"]) for p in json.loads(proc.stdout)["packets"]]
+    assert len(pts_list) > 5
+
+    samples = list(iter_sampled_frames(vfr_path, start_sec=0.0, end_sec=4.0, sample_fps=2.0))
+    assert len(samples) >= 4
+    for ts, _ in samples:
+        min_diff = min(abs(ts - pts) for pts in pts_list)
+        assert min_diff <= 0.040 + 1e-6
+
