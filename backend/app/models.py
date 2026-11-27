@@ -101,8 +101,10 @@ class Run(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_advice: Mapped[str | None] = mapped_column(Text, nullable=True)
     transaction_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     tx_offset_sec: Mapped[float] = mapped_column(Float, nullable=False)
     window_sec: Mapped[float] = mapped_column(Float, nullable=False)
@@ -110,6 +112,7 @@ class Run(Base):
     tracker: Mapped[str] = mapped_column(String(32), nullable=False)
     atm_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    link_low_margin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
@@ -138,6 +141,8 @@ class FrameRecord(Base):
     quality_score: Mapped[float] = mapped_column(Float, nullable=False)
     reliability: Mapped[str] = mapped_column(String(16), nullable=False)
     flags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    flag_scores: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    face_box: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     match_ready: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     rank_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     frame_path_rel: Mapped[str] = mapped_column(String(512), nullable=False)

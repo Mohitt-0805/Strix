@@ -2,6 +2,8 @@
 
 Base URL (local): `http://127.0.0.1:8000`
 
+> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
+
 ## Error Format
 
 Every error response uses the uniform JSON shape:
@@ -320,7 +322,29 @@ List clips newest-first or fetch a single clip by UUID (`Bearer` token required)
 
 ### `PATCH /clips/{id}`
 
-Update `clip_start_time` (sets `clip_start_source="user"`), `atm_id`, `zone_polygon_norm` (at least 3 `[x, y]` points in `0..1`), or `notes`.
+Update `clip_start_time` (sets `clip_start_source="user"`), `atm_id`, `zone_polygon_norm` (at least 3 `[x, y]` points in `0..1`; invalid polygons return `422 ZONE_INVALID`), or `notes`.
+
+---
+
+### `GET /zones`
+
+List configured ATM zones from `pipeline/config/atm_zone.json` sorted by `id` (`Bearer` token required).
+
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/zones -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):**
+```json
+[
+  {
+    "id": "atm_01",
+    "note": "Default normalized ATM standing zone (right-lower area)",
+    "polygon": [[0.45, 0.35], [0.95, 0.35], [0.95, 0.95], [0.45, 0.95]]
+  }
+]
+```
 
 ---
 
@@ -351,7 +375,7 @@ curl -i -r 0-99 "http://127.0.0.1:8000$VIDEO_URL"
 
 ### `POST /clips/{id}/process`
 
-Validate transaction time and window cap (`2 * window_sec * sample_fps <= 200`), queue a single-worker background job, and return `202 Accepted`.
+Validate transaction time, zone (`422 ZONE_NOT_FOUND` with valid zone IDs if `zone_polygon_norm` is unset and `atm_id` is unknown), and window cap (`(2 * window_sec + 2) * sample_fps <= 200`), queue a single-worker background job, and return `202 Accepted`.
 
 **Request:**
 ```bash
@@ -373,7 +397,7 @@ curl -s -X POST http://127.0.0.1:8000/clips/$CLIP_ID/process \
 
 ### `GET /runs/{run_id}`
 
-Poll run status (`queued` | `running` | `done` | `failed`), stage, progress, errors, and hydrated `result` when `done`.
+Poll run status (`queued` | `running` | `done` | `failed`), `stage`, `progress` (`0..1`), `progress_message`, `error_code`, `error_message`, `error_advice`, `link_low_margin`, and hydrated `result` (including per-frame `face_box` and `flag_scores`) when `done`.
 
 **Request:**
 ```bash

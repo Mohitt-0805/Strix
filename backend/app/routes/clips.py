@@ -22,6 +22,7 @@ from backend.app.routes.files import stream_file_response
 from backend.app.schemas import ClipOut, ClipPatchRequest
 from backend.app.services.probe import probe_video
 from backend.app.services.storage import from_rel, sanitize_filename, to_rel
+from backend.app.services.zones import validate_zone_polygon_norm
 from backend.app.signing import make_signed_file_url
 
 router = APIRouter(prefix="/clips", tags=["clips"])
@@ -266,7 +267,7 @@ def patch_clip(
     if "atm_id" in fields_set:
         clip.atm_id = payload.atm_id.strip() if payload.atm_id else None
     if "zone_polygon_norm" in fields_set:
-        clip.zone_polygon_norm = payload.zone_polygon_norm
+        clip.zone_polygon_norm = validate_zone_polygon_norm(payload.zone_polygon_norm)
     if "notes" in fields_set:
         clip.notes = payload.notes.strip() if payload.notes else None
 

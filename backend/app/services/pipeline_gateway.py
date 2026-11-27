@@ -14,6 +14,31 @@ from backend.app.services.storage import from_rel, to_rel
 from pipeline.contract import PipelineResult
 
 
+def _extract_raw_flag_scores(raw_result: Any) -> list[dict[str, float] | None]:
+    """Extract optional per-frame flag_scores before/alongside Pydantic validation."""
+    raw_frames = (
+        raw_result.get("best_frames")
+        if isinstance(raw_result, dict)
+        else getattr(raw_result, "best_frames", None)
+    )
+    if not isinstance(raw_frames, list):
+        return []
+    extracted: list[dict[str, float] | None] = []
+    for item in raw_frames:
+        if isinstance(item, dict):
+            scores = item.get("flag_scores")
+        else:
+            scores = getattr(item, "flag_scores", None)
+            if scores is None:
+                extra = getattr(item, "model_extra", None) or {}
+                scores = extra.get("flag_scores")
+        if isinstance(scores, dict):
+            extracted.append({str(k): float(v) for k, v in scores.items()})
+        else:
+            extracted.append(None)
+    return extracted
+
+
 def _build_supported_kwargs(
     run_fn: Callable[..., Any],
     all_kwargs: dict[str, Any],
@@ -25,7 +50,11 @@ def _build_supported_kwargs(
         for param in sig.parameters.values()
     )
     if accepts_var_kw:
-        return {k: v for k, v in all_kwargs.items() if v is not None or k in {"clip_path", "tx_offset_sec", "window_sec"}}
+        return {
+            k: v
+            for k, v in all_kwargs.items()
+            if v is not None or k in {"clip_path", "tx_offset_sec", "window_sec"}
+        }
 
     required_keys = ("clip_path", "tx_offset_sec", "window_sec")
     filtered: dict[str, Any] = {
@@ -87,17 +116,22 @@ def execute_pipeline_for_run(
         "clip_path": str(clip_abs_path),
         "tx_offset_sec": run.tx_offset_sec,
         "window_sec": run.window_sec,
-        "atm_id": run.atm_id or "",
         "transaction_time": run.transaction_time.isoformat(),
         "sample_fps": run.sample_fps,
         "tracker": run.tracker,
         "out_dir": str(out_dir_abs),
-        "zone_polygon_norm": clip.zone_polygon_norm,
         "progress_cb": progress_cb,
     }
+    # When clip.zone_polygon_norm is set, pass zone_polygon_norm and omit atm_id.
+    if clip.zone_polygon_norm is not None:
+        candidate_kwargs["zone_polygon_norm"] = clip.zone_polygon_norm
+    else:
+        candidate_kwargs["atm_id"] = run.atm_id or ""
+
     call_kwargs = _build_supported_kwargs(run_fn, candidate_kwargs)
 
     raw_result = run_fn(**call_kwargs)
+    raw_flag_scores = _extract_raw_flag_scores(raw_result)
     result = (
         raw_result
         if isinstance(raw_result, PipelineResult)
@@ -116,9 +150,16 @@ def execute_pipeline_for_run(
 
     normalized = _normalize_result_paths(result, settings)
 
-    # Persist normalized result JSON and individual frame rows (frame_id as TEXT).
-    run.result_json = normalized.model_dump(mode="json")
-    for frame in normalized.best_frames:
+    # Persist normalized result JSON, run-level margin flag, and frame rows.
+    result_dump = normalized.model_dump(mode="json")
+    for idx, scores in enumerate(raw_flag_scores):
+        if scores is not None and idx < len(result_dump.get("best_frames", [])):
+            result_dump["best_frames"][idx]["flag_scores"] = scores
+
+    run.link_low_margin = bool(normalized.link_low_margin)
+    run.result_json = result_dump
+    for idx, frame in enumerate(normalized.best_frames):
+        frame_scores = raw_flag_scores[idx] if idx < len(raw_flag_scores) else None
         db.add(
             FrameRecord(
                 run_id=run.id,
@@ -127,6 +168,8 @@ def execute_pipeline_for_run(
                 quality_score=frame.quality_score,
                 reliability=frame.reliability,
                 flags=list(frame.flags),
+                flag_scores=frame_scores,
+                face_box=list(frame.face_box) if frame.face_box is not None else None,
                 match_ready=frame.match_ready,
                 rank_reason=frame.rank_reason,
                 frame_path_rel=frame.frame_path,

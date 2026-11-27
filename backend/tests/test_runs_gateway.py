@@ -76,7 +76,7 @@ def _upload_sample(
     resp = client.post(
         "/clips",
         headers=headers,
-        data={"atm_id": "ATM-101"},
+        data={"atm_id": "atm_demo"},
         files={"file": (filename, raw_bytes, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text

@@ -121,24 +121,17 @@ class ClipPatchRequest(BaseModel):
 
     clip_start_time: datetime | None = None
     atm_id: str | None = Field(default=None, max_length=64)
-    zone_polygon_norm: list[list[float]] | None = None
+    # Validated explicitly in PATCH /clips/{id} so invalid polygons return 422 ZONE_INVALID.
+    zone_polygon_norm: Any = None
     notes: str | None = None
 
-    @field_validator("zone_polygon_norm")
-    @classmethod
-    def validate_polygon(cls, value: list[list[float]] | None) -> list[list[float]] | None:
-        """Require at least 3 [x, y] points normalized within [0, 1]."""
-        if value is None:
-            return None
-        if len(value) < 3:
-            raise ValueError("zone_polygon_norm must have at least 3 points.")
-        for point in value:
-            if len(point) != 2:
-                raise ValueError("Each polygon point must be [x, y].")
-            x, y = point
-            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
-                raise ValueError("Polygon coordinates must be between 0 and 1.")
-        return value
+
+class ZoneOut(BaseModel):
+    """Preconfigured ATM zone entry from pipeline/config/atm_zone.json."""
+
+    id: str
+    note: str
+    polygon: list[list[float]]
 
 
 class ProcessClipRequest(BaseModel):
@@ -169,6 +162,8 @@ class FrameOut(BaseModel):
     quality_score: float
     reliability: Literal["High", "Medium", "Low"]
     flags: list[str]
+    flag_scores: dict[str, float] | None = None
+    face_box: list[int] | None = None
     enhanced: bool
     enhancement: dict[str, Any] | None = None
     metrics: dict[str, Any]
@@ -194,6 +189,7 @@ class RunResultOut(BaseModel):
     best_frames: list[FrameOut]
     link_confidence: str | None = None
     link_reason: str | None = None
+    link_low_margin: bool = False
     selection_reason: str | None = None
     show_selection_reason: bool = False
     timings_ms: dict[str, float] | None = None
@@ -207,8 +203,10 @@ class RunStatusOut(BaseModel):
     status: Literal["queued", "running", "done", "failed"]
     stage: str | None = None
     progress: float | None = None
+    progress_message: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    error_advice: str | None = None
     transaction_time: datetime
     tx_offset_sec: float
     window_sec: float
@@ -216,6 +214,7 @@ class RunStatusOut(BaseModel):
     tracker: str
     atm_id: str | None = None
     pipeline_mode: Literal["fake", "real"]
+    link_low_margin: bool = False
     created_by: int
     created_at: datetime
     started_at: datetime | None = None

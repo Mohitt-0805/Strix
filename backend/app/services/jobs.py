@@ -2,8 +2,9 @@
 
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.audit import record_audit
@@ -18,6 +19,40 @@ from backend.app.services.search_index import (
 from backend.app.services.storage import from_rel
 
 logger = logging.getLogger(__name__)
+
+_ERROR_ADVICE_MAP: dict[str, str] = {
+    "VIDEO_NOT_FOUND": "The uploaded file is missing, re-upload it",
+    "VideoNotFound": "The uploaded file is missing, re-upload it",
+    "VIDEO_UNREADABLE": (
+        "Export the clip as MP4 (H.264) from the DVR/NVR software "
+        "or convert it with FFmpeg"
+    ),
+    "VideoUnreadable": (
+        "Export the clip as MP4 (H.264) from the DVR/NVR software "
+        "or convert it with FFmpeg"
+    ),
+    "ZONE_NOT_FOUND": "No ATM zone is stored for this clip, pick a known zone or draw one",
+    "ZoneNotFound": "No ATM zone is stored for this clip, pick a known zone or draw one",
+    "MODEL_LOAD": (
+        "The pipeline models failed to load, check the weights and GPU "
+        "on the pipeline machine"
+    ),
+    "MODEL_LOAD_ERROR": (
+        "The pipeline models failed to load, check the weights and GPU "
+        "on the pipeline machine"
+    ),
+    "ModelLoad": (
+        "The pipeline models failed to load, check the weights and GPU "
+        "on the pipeline machine"
+    ),
+}
+
+
+def get_error_advice(error_code: str, error_message: str) -> str | None:
+    """Map typed pipeline error codes to investigator-facing remediation advice."""
+    if error_code in {"INVALID_ARGUMENT", "InvalidArgument"}:
+        return error_message
+    return _ERROR_ADVICE_MAP.get(error_code)
 
 
 def mark_stale_runs_failed(session_factory: sessionmaker[Session]) -> int:
@@ -156,12 +191,39 @@ class JobManager:
                 details={"clip_id": run.clip_id, "pipeline_mode": run.pipeline_mode},
             )
 
-            def _progress_cb(stage: str, progress: float | None = None) -> None:
-                run_row = db.get(Run, run_id)
-                if run_row is not None:
-                    run_row.stage = stage
-                    run_row.progress = progress
+            def _progress_cb(
+                event_or_stage: Any,
+                fraction_arg: float | None = None,
+            ) -> None:
+                """Accept dict {stage, fraction, message} or legacy (stage, progress) safely."""
+                try:
+                    if isinstance(event_or_stage, dict):
+                        stage_val = event_or_stage.get("stage")
+                        raw_frac = event_or_stage.get("fraction")
+                        msg_val = event_or_stage.get("message")
+                    else:
+                        stage_val = event_or_stage
+                        raw_frac = fraction_arg
+                        msg_val = None
+
+                    values: dict[str, Any] = {}
+                    if stage_val is not None:
+                        values["stage"] = str(stage_val)
+                    if raw_frac is not None:
+                        values["progress"] = float(raw_frac)
+                    if msg_val is not None:
+                        values["progress_message"] = str(msg_val)
+                    if not values:
+                        return
+
+                    db.execute(update(Run).where(Run.id == run_id).values(**values))
                     db.commit()
+                except Exception as cb_exc:
+                    logger.warning("Ignoring error in progress_cb for run %s: %s", run_id, cb_exc)
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
 
             try:
                 result = execute_pipeline_for_run(
@@ -171,12 +233,16 @@ class JobManager:
                     settings=self.settings,
                     progress_cb=_progress_cb,
                 )
-                run.status = "done"
-                run.stage = "done"
-                run.progress = 1.0
-                run.finished_at = utc_now_naive()
-                db.commit()
-                self._index_completed_run(db, run, clip)
+                run_row = db.get(Run, run_id)
+                if run_row is not None:
+                    if run_row.stage != "done" or not run_row.progress_message:
+                        run_row.progress_message = "Done"
+                    run_row.status = "done"
+                    run_row.stage = "done"
+                    run_row.progress = 1.0
+                    run_row.finished_at = utc_now_naive()
+                    db.commit()
+                    self._index_completed_run(db, run_row, clip)
 
                 record_audit(
                     db,
@@ -202,12 +268,12 @@ class JobManager:
                         if isinstance(raw_code, str) and raw_code.strip()
                         else "PIPELINE_FAILED"
                     )
+                    error_msg = str(exc).strip() or "Pipeline execution failed."
                     failed_run.status = "failed"
                     failed_run.stage = "failed"
                     failed_run.error_code = error_code
-                    failed_run.error_message = (
-                        str(exc).strip() or "Pipeline execution failed."
-                    )
+                    failed_run.error_message = error_msg
+                    failed_run.error_advice = get_error_advice(error_code, error_msg)
                     failed_run.finished_at = utc_now_naive()
                     db.commit()
 

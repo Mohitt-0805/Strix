@@ -25,6 +25,7 @@ from backend.app.routes.frames import router as frames_router
 from backend.app.routes.runs import router as runs_router
 from backend.app.routes.search import router as search_router
 from backend.app.routes.users import router as users_router
+from backend.app.routes.zones import router as zones_router
 from backend.app.security import LoginThrottle
 from backend.app.services.jobs import JobManager, mark_stale_runs_failed
 from backend.app.services.search_index import SearchIndex
@@ -108,6 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(frames_router)
     application.include_router(search_router)
     application.include_router(evidence_router)
+    application.include_router(zones_router)
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:

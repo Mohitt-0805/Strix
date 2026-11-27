@@ -74,7 +74,7 @@ def _upload_and_process(
     up = client.post(
         "/clips",
         headers=headers,
-        data={"atm_id": "ATM-501"},
+        data={"atm_id": "atm_demo"},
         files={"file": (filename, raw_bytes, "video/mp4")},
     )
     assert up.status_code == 201, up.text

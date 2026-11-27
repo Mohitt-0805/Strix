@@ -20,6 +20,7 @@ from backend.app.schemas import (
     RunStatusOut,
 )
 from backend.app.services.jobs import JobManager
+from backend.app.services.zones import get_valid_zone_ids
 from backend.app.signing import make_signed_file_url
 
 router = APIRouter(tags=["runs"])
@@ -71,6 +72,8 @@ def build_run_result_out(
                 quality_score=row.quality_score,
                 reliability=row.reliability,
                 flags=list(row.flags or []),
+                flag_scores=row.flag_scores,
+                face_box=row.face_box,
                 enhanced=row.enhanced,
                 enhancement=enh,
                 metrics=dict(row.metrics or {}),
@@ -102,6 +105,7 @@ def build_run_result_out(
         best_frames=frame_outs,
         link_confidence=raw.get("link_confidence"),
         link_reason=raw.get("link_reason"),
+        link_low_margin=bool(run.link_low_margin),
         selection_reason=raw.get("selection_reason"),
         show_selection_reason=show_sel,
         timings_ms=raw.get("timings_ms"),
@@ -127,8 +131,10 @@ def _run_to_status_out(
         status=run.status,
         stage=run.stage,
         progress=run.progress,
+        progress_message=run.progress_message,
         error_code=run.error_code,
         error_message=run.error_message,
+        error_advice=run.error_advice,
         transaction_time=run.transaction_time,
         tx_offset_sec=run.tx_offset_sec,
         window_sec=run.window_sec,
@@ -136,6 +142,7 @@ def _run_to_status_out(
         tracker=run.tracker,
         atm_id=run.atm_id,
         pipeline_mode=run.pipeline_mode,
+        link_low_margin=bool(run.link_low_margin),
         created_by=run.created_by,
         created_at=run.created_at,
         started_at=run.started_at,
@@ -198,6 +205,23 @@ def process_clip(
             ),
         )
 
+    effective_atm_id = (
+        payload.atm_id.strip()
+        if payload.atm_id and payload.atm_id.strip()
+        else clip.atm_id
+    )
+    if clip.zone_polygon_norm is None and effective_atm_id:
+        valid_ids = get_valid_zone_ids()
+        if effective_atm_id not in valid_ids:
+            raise AppError(
+                status_code=422,
+                code="ZONE_NOT_FOUND",
+                detail=(
+                    f"ATM zone '{effective_atm_id}' not found. "
+                    f"Valid zone ids: {', '.join(valid_ids)}."
+                ),
+            )
+
     run = Run(
         clip_id=clip.id,
         status="queued",
@@ -208,7 +232,7 @@ def process_clip(
         window_sec=payload.window_sec,
         sample_fps=payload.sample_fps,
         tracker=payload.tracker,
-        atm_id=payload.atm_id.strip() if payload.atm_id and payload.atm_id.strip() else clip.atm_id,
+        atm_id=effective_atm_id,
         pipeline_mode=settings.pipeline_mode,
         created_by=current_user.id,
     )

@@ -232,6 +232,33 @@ def build_evidence_pdf(
         story.append(warn_tbl)
         story.append(Spacer(1, 4 * mm))
 
+    if run.link_low_margin:
+        margin_tbl = Table(
+            [
+                [
+                    Paragraph(
+                        "WARNING: link_low_margin=True — narrow margin between candidate tracks; "
+                        "verify person identity carefully.",
+                        warn_style,
+                    )
+                ]
+            ],
+            colWidths=[180 * mm],
+        )
+        margin_tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF3C7")),
+                    ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#D97706")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(margin_tbl)
+        story.append(Spacer(1, 3 * mm))
+
     raw_res = run.result_json or {}
     generated_local = datetime.now(ZoneInfo(settings.display_tz)).strftime(
         "%Y-%m-%d %H:%M:%S %Z"
@@ -261,6 +288,7 @@ def build_evidence_pdf(
             "Link Confidence",
             f"{raw_res.get('link_confidence') or 'N/A'} — {raw_res.get('link_reason') or 'N/A'}",
         ),
+        ("Link Low Margin", str(bool(run.link_low_margin))),
         ("Selection Reason", raw_res.get("selection_reason") or "N/A"),
         ("Pipeline Mode", run.pipeline_mode),
         ("Model Labels", " | ".join(model_labels)),
@@ -295,6 +323,13 @@ def build_evidence_pdf(
     chosen_frames = selected_frames if selected_frames else frames
     selection_label = "Selected Frames" if selected_frames else "Candidate Best Frames"
     story.append(Paragraph(f"{selection_label} ({len(chosen_frames)})", h2_style))
+    story.append(
+        Paragraph(
+            "Flags are model estimates and can be wrong in both directions. A human must verify.",
+            caption_style,
+        )
+    )
+    story.append(Spacer(1, 2 * mm))
 
     data_root = settings.resolved_data_dir
     if not chosen_frames:
@@ -357,11 +392,25 @@ def build_evidence_pdf(
                     primary_rel, data_root, 70 * mm, 42 * mm, caption_style
                 )
 
-            flags_str = ", ".join(fr.flags) if fr.flags else "none"
+            scores_map = fr.flag_scores or {}
+            if fr.flags:
+                formatted_flags = []
+                for flag in fr.flags:
+                    if flag in scores_map:
+                        formatted_flags.append(
+                            f"{flag} (model estimate {float(scores_map[flag]):.2f})"
+                        )
+                    else:
+                        formatted_flags.append(flag)
+                flags_str = ", ".join(formatted_flags)
+            else:
+                flags_str = "none"
+
+            face_box_str = str(fr.face_box) if fr.face_box is not None else "N/A"
             details_text = (
                 f"Frame ID: {fr.frame_id} | Timestamp: {fr.timestamp_sec:.2f}s\n"
                 f"Quality Score: {fr.quality_score:.3f} | Reliability: {fr.reliability}\n"
-                f"Match Ready: {fr.match_ready if fr.match_ready is not None else 'N/A'}\n"
+                f"Match Ready: {fr.match_ready if fr.match_ready is not None else 'N/A'} | Face Box: {face_box_str}\n"
                 f"Flags: {flags_str}\n"
                 f"Rank Reason: {fr.rank_reason or 'N/A'}"
             )
