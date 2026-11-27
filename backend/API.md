@@ -15,6 +15,30 @@ Every error response uses the uniform JSON shape:
 }
 ```
 
+---
+
+## Frontend Integration Notes
+
+- **Signed media URLs (`video_url`, `image_url`, `crop_url`, `enhanced_url`, `original_url`, `frame_url`):**
+  Every media URL returned by the API is a **relative** path (`/files?p=...&uid=...&exp=...&sig=...`). Prefix it with the API base URL (e.g., `${API_BASE_URL}${frame.image_url}`) and pass it directly to `<img>` or `<video>` tags **without** any `Authorization` header (browsers do not send Bearer headers from media tags, and `/files` authenticates via the short-lived HMAC signature). Video supports HTTP `Range` seeking automatically. Missing image files return `null` URLs in search and index responses rather than breaking.
+- **`pipeline_mode` banner from `/config/public`:**
+  Fetch `GET /config/public` on app load. When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results.
+- **Polling runs and index jobs:**
+  - `POST /clips/{id}/process` returns `202` `{run_id, status}`. Poll `GET /runs/{run_id}` (e.g., every 500–1000 ms) until `status` is `"done"` or `"failed"`. Read `stage`, `progress` (`0.0–1.0` or `null`), and `progress_message` for live progress UI.
+  - `POST /clips/{id}/index` (and automatic upload indexing when `AUTO_INDEX_ON_UPLOAD=1`) returns `202` `{index_id, status}`. Poll `GET /indexes/{index_id}` using the same `status`, `stage`, `progress`, and `progress_message` fields. Note that processing runs have queue priority `0` and preempt waiting index jobs (`1`).
+- **Typed failure fields (`error_code`, `error_message`, `error_advice`):**
+  When a run or index job has `status === "failed"`, display `error_advice` (human remediation guidance) alongside `error_message` and `error_code` (`VIDEO_NOT_FOUND`, `VIDEO_UNREADABLE`, `INVALID_ARGUMENT`, `ZONE_NOT_FOUND`, `MODEL_LOAD` / `MODEL_LOAD_ERROR`).
+- **Flags & `flag_scores`:**
+  `flags` is an **open list of strings** (for example `"low light"`, `"blur"`, `"cap"`, `"mask"`, `"helmet"`)—never restrict UI rendering to a fixed enum. When `flag_scores` is present, render each scored flag as a model estimate (e.g., `cap (model estimate 0.71)`) and remind investigators that flags are model estimates that can be wrong in both directions.
+- **`short_track` faces in search & index results:**
+  `GET /indexes/{index_id}` marks `short_track: true` tracks with `confidence_note: "low confidence (short track)"`. `POST /search` hides `short_track` faces by default (`include_short_tracks: false`); surface an optional toggle to include them with a low-confidence badge.
+- **`crop_box` coordinates:**
+  `POST /runs/{run_id}/frames/{frame_id}/enhance` expects `crop_box: [x, y, w, h]` in **full-frame pixels** (`w, h >= 8` after clipping to image bounds) and `scale` of `2` or `4`. `face_box` on frames is `[x1, y1, x2, y2]` in full-frame pixels.
+- **Downloading the Evidence PDF:**
+  `GET /runs/{run_id}/evidence.pdf?search_id=` requires the `Authorization: Bearer <token>` header. Fetch it with `fetch(..., { headers: { Authorization: ... } })` as a `Blob` (`response.blob()`) and trigger download or open via `URL.createObjectURL(blob)`—do not navigate a plain `<a>` link without auth headers.
+
+---
+
 ## Public Endpoints
 
 ### `GET /health`
@@ -64,19 +88,8 @@ curl -s http://127.0.0.1:8000/config/public
     "embed_dim": 512,
     "signed_url_ttl_sec": 900
   },
-  "accepted_extensions": [
-    "mp4",
-    "avi",
-    "mov",
-    "mkv",
-    "wmv",
-    "flv",
-    "mpeg",
-    "mpg"
-  ],
-  "model_labels": [
-    "FAKE PIPELINE"
-  ],
+  "accepted_extensions": ["mp4", "avi", "mov", "mkv", "wmv", "flv", "mpeg", "mpg"],
+  "model_labels": ["FAKE PIPELINE"],
   "display_tz": "Asia/Kolkata"
 }
 ```
@@ -271,18 +284,18 @@ curl -s http://127.0.0.1:8000/audit/verify \
 
 ---
 
-## Clips & Signed Files Endpoints
+## Clips, Zones & Signed Files Endpoints
 
 ### `POST /clips`
 
-Stream-upload a video clip (`mp4, avi, mov, mkv, wmv, flv, mpeg, mpg`), compute SHA-256, probe metadata with `ffprobe`, and convert `creation_time` to `DISPLAY_TZ`.
+Stream-upload a video clip (`mp4, avi, mov, mkv, wmv, flv, mpeg, mpg`), compute SHA-256, probe metadata with `ffprobe`, convert `creation_time` to `DISPLAY_TZ`, and auto-queue an index job when `AUTO_INDEX_ON_UPLOAD=1`.
 
 **Request (`multipart/form-data`):**
 ```bash
 curl -s -X POST http://127.0.0.1:8000/clips \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@sample.mp4" \
-  -F "atm_id=ATM-001" \
+  -F "atm_id=atm_demo" \
   -F "notes=Test upload"
 ```
 
@@ -303,7 +316,7 @@ curl -s -X POST http://127.0.0.1:8000/clips \
   "rotation": 0,
   "clip_start_time": "2026-11-26T15:30:00",
   "clip_start_source": "ffprobe_converted",
-  "atm_id": "ATM-001",
+  "atm_id": "atm_demo",
   "zone_polygon_norm": null,
   "notes": "Test upload",
   "uploaded_by": 1,
@@ -314,15 +327,71 @@ curl -s -X POST http://127.0.0.1:8000/clips \
 
 ---
 
-### `GET /clips` & `GET /clips/{id}`
+### `GET /clips`
 
-List clips newest-first or fetch a single clip by UUID (`Bearer` token required).
+List uploaded clips newest-first (`Bearer` token required).
+
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/clips -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "original_filename": "sample.mp4",
+    "stored_path": "uploads/550e8400-e29b-41d4-a716-446655440000/sample.mp4",
+    "sha256": "<sha256>",
+    "size_bytes": 123456,
+    "duration_sec": 5.0,
+    "fps": 10.0,
+    "width": 320,
+    "height": 240,
+    "codec": "h264",
+    "container": "mov,mp4,m4a,3gp,3g2,mj2",
+    "rotation": 0,
+    "clip_start_time": "2026-11-26T15:30:00",
+    "clip_start_source": "ffprobe_converted",
+    "atm_id": "atm_demo",
+    "zone_polygon_norm": null,
+    "notes": "Test upload",
+    "uploaded_by": 1,
+    "created_at": "2026-11-26T13:05:00.000000",
+    "video_url": "/files?p=uploads%2F...&uid=1&exp=...&sig=..."
+  }
+]
+```
+
+---
+
+### `GET /clips/{id}`
+
+Fetch a single clip by UUID (`Bearer` token required).
+
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/clips/$CLIP_ID -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):** Same JSON object shape as `POST /clips`.
 
 ---
 
 ### `PATCH /clips/{id}`
 
 Update `clip_start_time` (sets `clip_start_source="user"`), `atm_id`, `zone_polygon_norm` (at least 3 `[x, y]` points in `0..1`; invalid polygons return `422 ZONE_INVALID`), or `notes`.
+
+**Request:**
+```bash
+curl -s -X PATCH http://127.0.0.1:8000/clips/$CLIP_ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"zone_polygon_norm":[[0.1,0.1],[0.9,0.1],[0.9,0.9],[0.1,0.9]],"notes":"Lobby zone"}'
+```
+
+**Response (`200 OK`):** Returns the updated `ClipOut` JSON object.
 
 ---
 
@@ -358,6 +427,15 @@ curl -i -r 0-99 -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8000/clips/$CLIP_ID/video
 ```
 
+**Response (`206 Partial Content`):**
+```http
+HTTP/1.1 206 Partial Content
+accept-ranges: bytes
+content-range: bytes 0-99/20605
+content-length: 100
+content-type: video/mp4
+```
+
 ---
 
 ### `GET /files`
@@ -369,13 +447,22 @@ Serve files inside `DATA_DIR/uploads` or `DATA_DIR/outputs` using an HMAC-SHA256
 curl -i -r 0-99 "http://127.0.0.1:8000$VIDEO_URL"
 ```
 
+**Response (`206 Partial Content` for byte ranges, `200 OK` for full file):**
+```http
+HTTP/1.1 206 Partial Content
+accept-ranges: bytes
+content-range: bytes 0-99/20605
+content-length: 100
+content-type: video/mp4
+```
+
 ---
 
 ## Processing & Runs Endpoints
 
 ### `POST /clips/{id}/process`
 
-Validate transaction time, zone (`422 ZONE_NOT_FOUND` with valid zone IDs if `zone_polygon_norm` is unset and `atm_id` is unknown), and window cap (`(2 * window_sec + 2) * sample_fps <= 200`), queue a single-worker background job, and return `202 Accepted`.
+Validate transaction time, zone (`422 ZONE_NOT_FOUND` with valid zone IDs if `zone_polygon_norm` is unset and `atm_id` is unknown), and window cap (`(2 * window_sec + 2) * sample_fps <= 200`), queue a single-worker background job (priority `0`), and return `202 Accepted`.
 
 **Request:**
 ```bash
@@ -404,26 +491,117 @@ Poll run status (`queued` | `running` | `done` | `failed`), `stage`, `progress` 
 curl -s http://127.0.0.1:8000/runs/1 -H "Authorization: Bearer $TOKEN"
 ```
 
+**Response (`200 OK`):**
+```json
+{
+  "run_id": 1,
+  "clip_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "done",
+  "stage": "done",
+  "progress": 1.0,
+  "progress_message": "Done (fake)",
+  "error_code": null,
+  "error_message": null,
+  "error_advice": null,
+  "transaction_time": "2026-11-26T15:30:02",
+  "tx_offset_sec": 2.0,
+  "window_sec": 2.0,
+  "sample_fps": 2.0,
+  "tracker": "iou",
+  "atm_id": "atm_demo",
+  "pipeline_mode": "fake",
+  "link_low_margin": false,
+  "created_by": 2,
+  "created_at": "2026-11-26T13:40:15.000000",
+  "started_at": "2026-11-26T13:40:15.010000",
+  "finished_at": "2026-11-26T13:40:15.250000",
+  "result": { "...": "same shape as GET /runs/{run_id}/result" }
+}
+```
+
 ---
 
 ### `GET /clips/{id}/runs`
 
 List all processing runs for a clip newest-first.
 
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/clips/$CLIP_ID/runs -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):**
+```json
+[
+  {
+    "run_id": 1,
+    "clip_id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "done",
+    "stage": "done",
+    "progress": 1.0,
+    "progress_message": "Done (fake)",
+    "result": { "...": "hydrated RunResultOut" }
+  }
+]
+```
+
 ---
 
 ### `GET /runs/{run_id}/result`
 
-Return the hydrated `PipelineResult` for a completed run with signed `image_url`, `crop_url`, `enhanced_url`, `video_url`, `pipeline_mode`, `notice`, and `show_selection_reason`.
+Return the hydrated `PipelineResult` for a completed run with signed `image_url`, `crop_url`, `enhanced_url`, `video_url`, `pipeline_mode`, `notice`, `link_low_margin`, `show_selection_reason`, and per-frame `face_box` and `flag_scores`.
 
 **Request:**
 ```bash
 curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
 ```
 
+**Response (`200 OK`):**
+```json
+{
+  "run_id": 1,
+  "clip_id": "550e8400-e29b-41d4-a716-446655440000",
+  "pipeline_mode": "fake",
+  "banner": "FAKE PIPELINE, DEMO DATA",
+  "notice": "Possible matches only. A human investigator must verify every result.",
+  "video_url": "/files?p=uploads%2F...&uid=2&exp=...&sig=...",
+  "transaction_time": "2026-11-26T15:30:02",
+  "person_track_id": 4,
+  "best_frames": [
+    {
+      "frame_id": "142",
+      "frame_path": "outputs/.../run_1/frame_142.jpg",
+      "crop_path": "outputs/.../run_1/crop_142.jpg",
+      "embedding_path": "outputs/.../run_1/emb_142.npy",
+      "timestamp_sec": 5.68,
+      "quality_score": 0.86,
+      "reliability": "High",
+      "flags": [],
+      "flag_scores": null,
+      "face_box": null,
+      "enhanced": false,
+      "enhancement": null,
+      "metrics": {"sharpness": 0.88, "face_size": 112.0, "pose_yaw": 4.2, "illumination": 0.79, "occlusion": 0.05},
+      "match_ready": null,
+      "rank_reason": null,
+      "selected": false,
+      "image_url": "/files?...",
+      "crop_url": "/files?...",
+      "enhanced_url": null
+    }
+  ],
+  "link_confidence": null,
+  "link_reason": null,
+  "link_low_margin": false,
+  "selection_reason": null,
+  "show_selection_reason": false,
+  "timings_ms": null
+}
+```
+
 ---
 
-## Search Endpoints
+## Search & Indexing Endpoints
 
 ### `POST /search`
 
@@ -481,6 +659,13 @@ curl -s -X POST http://127.0.0.1:8000/search \
 
 Retrieve a saved search result with freshly signed `crop_url` and `frame_url` links (`null` if image missing).
 
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/searches/1 -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):** Same JSON shape as `POST /search`.
+
 ---
 
 ### `POST /clips/{id}/index`
@@ -509,15 +694,97 @@ curl -s -X POST http://127.0.0.1:8000/clips/$CLIP_ID/index \
 
 List all indexing jobs for a clip newest-first.
 
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/clips/$CLIP_ID/indexes -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):**
+```json
+[
+  {
+    "index_id": 1,
+    "clip_id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "done",
+    "stage": "done",
+    "progress": 1.0,
+    "progress_message": "Done (fake)",
+    "error_code": null,
+    "error_message": null,
+    "error_advice": null,
+    "start_sec": 0.0,
+    "end_sec": 4.0,
+    "sample_fps": 1.0,
+    "tracker": "iou",
+    "faces_per_track": 3,
+    "atm_id": "atm_demo",
+    "total_embeddings": 5,
+    "timings_ms": {"frames": 1.0, "detect_persons": 1.0, "track": 1.0, "faces": 1.0, "quality": 1.0, "save": 1.0},
+    "pipeline_mode": "fake",
+    "created_by": 2,
+    "created_at": "2026-11-27T07:19:22.000000",
+    "started_at": "2026-11-27T07:19:22.010000",
+    "finished_at": "2026-11-27T07:19:22.100000"
+  }
+]
+```
+
 ---
 
 ### `GET /indexes/{index_id}`
 
 Return index status, `stage`, `progress`, `progress_message`, `error_code`, `error_message`, `error_advice`, and `tracks` (with per-track `short_track` / `confidence_note`, `reason` when faceless, and `faces` with signed `crop_url` and `frame_url`, or `null` if missing).
 
+**Request:**
+```bash
+curl -s http://127.0.0.1:8000/indexes/1 -H "Authorization: Bearer $TOKEN"
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "index_id": 1,
+  "clip_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "done",
+  "stage": "done",
+  "progress": 1.0,
+  "progress_message": "Done (fake)",
+  "total_embeddings": 5,
+  "tracks": [
+    {
+      "track_id": 1,
+      "first_t": 0.0,
+      "last_t": 4.0,
+      "n_observations": 6,
+      "short_track": false,
+      "confidence_note": null,
+      "dwell_sec_in_zone": 4.0,
+      "reason": null,
+      "face_count": 2,
+      "faces": [
+        {
+          "id": 1,
+          "track_id": 1,
+          "t": 0.0,
+          "quality_score": 0.85,
+          "reliability": "High",
+          "match_ready": true,
+          "flags": [],
+          "flag_scores": null,
+          "face_box": [10.0, 10.0, 74.0, 74.0],
+          "short_track": false,
+          "crop_url": "/files?...",
+          "frame_url": "/files?..."
+        }
+      ]
+    }
+  ]
+}
+```
+
 ---
 
-## Selection & Evidence PDF Endpoints
+## Selection, Enhancement & Evidence PDF Endpoints
 
 ### `POST /runs/{run_id}/selection`
 
@@ -583,6 +850,11 @@ curl -s -o /tmp/evidence_test.pdf \
   "http://127.0.0.1:8000/runs/1/evidence.pdf?search_id=1"
 ```
 
+**Response (`200 OK`, `application/pdf`):**
+```http
+HTTP/1.1 200 OK
+content-disposition: attachment; filename="evidence_EV-1.pdf"
+content-type: application/pdf
 
-
-
+%PDF-1.4 ...
+```
