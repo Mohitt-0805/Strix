@@ -292,3 +292,86 @@ def test_short_track_and_index_summary_synthetic(tmp_path: Path) -> None:
     assert "0.60" in summary
     assert "No face found" in summary
 
+
+def test_index_sheet_and_search_index_synthetic(tmp_path: Path) -> None:
+    """Verify index_sheet creation, search ranking order, --exclude-track, and exact 1.00 match."""
+    from PIL import Image
+    from pipeline.contract import IndexFace, IndexTrack
+    from scripts.index_sheet import build_index_sheet
+    from scripts.search_index import search_index
+
+    idx_dir = tmp_path / "idx_search"
+    idx_dir.mkdir()
+
+    # Create 3 synthetic unit vectors across 2 tracks.
+    v1 = np.zeros(512, dtype=np.float32)
+    v1[0] = 1.0
+    v2 = np.zeros(512, dtype=np.float32)
+    v2[0] = 0.8
+    v2[1] = 0.6
+    v3 = np.zeros(512, dtype=np.float32)
+    v3[2] = 1.0
+
+    c1, c2, c3 = idx_dir / "c1.jpg", idx_dir / "c2.jpg", idx_dir / "c3.jpg"
+    for cp in (c1, c2, c3):
+        Image.new("RGB", (40, 40), color=(100, 120, 140)).save(cp, format="JPEG")
+
+    meta = [
+        {"track_id": 1, "t": 1.0, "reliability": "High", "match_ready": True, "crop_path": str(c1)},
+        {"track_id": 2, "t": 5.0, "reliability": "Medium", "match_ready": True, "crop_path": str(c2)},
+        {"track_id": 2, "t": 7.0, "reliability": "Low", "match_ready": False, "crop_path": str(c3)},
+    ]
+    np.savez(
+        idx_dir / "index.npz",
+        embeddings=np.vstack([v1, v2, v3]).astype(np.float32),
+        metadata_json=np.array(json.dumps(meta)),
+    )
+    idx_res = IndexResult(
+        clip_id="synth",
+        start_sec=0.0,
+        end_sec=10.0,
+        tracks=[
+            IndexTrack(
+                track_id=1,
+                first_t=1.0,
+                last_t=1.0,
+                n_observations=1,
+                short_track=True,
+                faces=[
+                    IndexFace(
+                        t=1.0,
+                        quality_score=0.9,
+                        reliability="High",
+                        match_ready=True,
+                        flags=[],
+                        face_box=[0, 0, 40, 40],
+                        crop_path=str(c1),
+                        frame_path=str(c1),
+                        embedding_path=str(idx_dir / "e1.npy"),
+                    )
+                ],
+            ),
+            IndexTrack(track_id=2, first_t=5.0, last_t=7.0, n_observations=4, short_track=False, faces=[]),
+        ],
+        index_npz_path=str(idx_dir / "index.npz"),
+        index_json_path=str(idx_dir / "index.json"),
+        total_embeddings=3,
+    )
+    (idx_dir / "index.json").write_text(idx_res.model_dump_json(indent=2), encoding="utf-8")
+
+    sheet_path = build_index_sheet(idx_dir)
+    assert sheet_path.exists()
+
+    # Query equal to v1 -> track 1 has similarity 1.00, ranked first.
+    matches, search_img = search_index(idx_dir, v1, top_k=5)
+    assert search_img.exists()
+    assert [m["track_id"] for m in matches] == [1, 2, 2]
+    assert np.isclose(matches[0]["similarity"], 1.0, atol=1e-4)
+    assert matches[0]["similarity"] >= matches[1]["similarity"] >= matches[2]["similarity"]
+
+    # Exclude track 1 -> only track 2 matches returned.
+    excluded, _ = search_index(idx_dir, v1, top_k=5, exclude_track=1)
+    assert all(m["track_id"] != 1 for m in excluded)
+    assert len(excluded) == 2
+
+
