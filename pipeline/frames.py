@@ -106,11 +106,12 @@ def iter_sampled_frames(
     start_sec: float,
     end_sec: float,
     sample_fps: float,
+    max_frames: int | None = MAX_SAMPLED_FRAMES,
 ) -> Iterator[tuple[float, Any]]:
     """Sequentially read frames using cap.grab() and yield (timestamp_sec, bgr_ndarray).
 
-    Never seeks per frame. Enforces a hard cap of 200 frames and ensures phone
-    videos with rotation metadata are returned upright.
+    Never seeks per frame. Enforces max_frames (default 200; pass None for streaming)
+    and ensures phone videos with rotation metadata are returned upright.
     """
     import cv2
 
@@ -138,7 +139,7 @@ def iter_sampled_frames(
         last_timestamp: float | None = None
         yielded = 0
 
-        while yielded < MAX_SAMPLED_FRAMES:
+        while max_frames is None or yielded < max_frames:
             if not cap.grab():
                 break
 

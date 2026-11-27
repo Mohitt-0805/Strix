@@ -80,6 +80,46 @@ class PipelineResult(BaseModel):
     timings_ms: Optional[dict[str, float]] = None
 
 
+class IndexFace(BaseModel):
+    """Single indexed face observation for a tracked person."""
+
+    t: float
+    quality_score: float = Field(ge=0.0, le=1.0)
+    reliability: Literal["High", "Medium", "Low"]
+    match_ready: bool
+    flags: list[str]
+    face_box: list[float]
+    crop_path: str
+    frame_path: str
+    embedding_path: str
+
+
+class IndexTrack(BaseModel):
+    """Single tracked person in an indexed clip range."""
+
+    track_id: int
+    first_t: float
+    last_t: float
+    n_observations: int = 0
+    short_track: bool = False
+    dwell_sec_in_zone: Optional[float] = None
+    faces: list[IndexFace] = Field(default_factory=list)
+    reason: Optional[str] = None
+
+
+class IndexResult(BaseModel):
+    """Top-level output for index_clip() search indexing."""
+
+    clip_id: str
+    start_sec: float
+    end_sec: float
+    tracks: list[IndexTrack] = Field(default_factory=list)
+    index_npz_path: str
+    index_json_path: str
+    total_embeddings: int = 0
+    timings_ms: Optional[dict[str, float]] = None
+
+
 def load_result(path: str | Path) -> PipelineResult:
     """Load and validate a PipelineResult JSON file from disk."""
     raw_json = Path(path).read_text(encoding="utf-8")
