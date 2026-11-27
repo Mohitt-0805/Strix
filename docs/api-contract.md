@@ -106,6 +106,19 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 - `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down")`
 - `FLAG_VOCAB["planned"]`: `("cap", "mask", "helmet")`
 
+### `IndexResult`, `IndexTrack`, `IndexFace` (`pipeline/index_clip.py`)
+| Model | Field | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `IndexResult` | `clip_id`, `start_sec`, `end_sec` | `str`, `float`, `float` | required | Indexed clip ID and time range. |
+| `IndexResult` | `tracks` | `list[IndexTrack]` | `[]` | Every tracked person in `[start_sec, end_sec]`. |
+| `IndexResult` | `index_npz_path`, `index_json_path` | `str`, `str` | required | Saved `index.npz` (`N x 512` float32 embeddings + `metadata_json`) and `index.json`. |
+| `IndexResult` | `total_embeddings`, `timings_ms` | `int`, `Optional[dict[str, float]]` | `0`, `None` | Total indexed embeddings and stage timings. |
+| `IndexTrack` | `track_id`, `first_t`, `last_t` | `int`, `float`, `float` | required | Track ID and time span. |
+| `IndexTrack` | `n_observations`, `short_track` | `int`, `bool` | `0`, `False` | Total track observations; `true` when `n_observations < 2`. |
+| `IndexTrack` | `dwell_sec_in_zone` | `Optional[float]` | `None` | Zone dwell time (only populated when a zone is given). |
+| `IndexTrack` | `faces`, `reason` | `list[IndexFace]`, `Optional[str]` | `[]`, `None` | Top `faces_per_track` faces, or reason when empty (`"No face found"`, `"Face under <N> px"`). |
+| `IndexFace` | `t`, `quality_score`, `reliability`, `match_ready`, `flags`, `face_box`, `crop_path`, `frame_path`, `embedding_path` | `float`, `float`, `Literal`, `bool`, `list[str]`, `list[float]`, `str`, `str`, `str` | required | Indexed face metadata and saved artifact paths. |
+
 ### Errors (`pipeline/errors.py`)
 | Exception | `code` | When raised |
 | --- | --- | --- |
