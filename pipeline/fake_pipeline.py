@@ -13,7 +13,7 @@ import zipfile
 
 from PIL import Image, ImageDraw
 
-from pipeline.contract import IndexFace, IndexResult, IndexTrack, PipelineResult, load_result
+from pipeline.contract import Enhancement, IndexFace, IndexResult, IndexTrack, PipelineResult, load_result
 from pipeline.errors import InvalidArgumentError, ZoneNotFoundError, validate_zone_polygon
 from pipeline.link_transaction import load_zone
 
@@ -81,29 +81,52 @@ def run(
 def fake_enhance(
     image_path: str | Path,
     crop_box: list[int] | tuple[int, int, int, int],
-    scale: int,
-) -> Path:
-    """Crop and Lanczos-upscale an image with Pillow, stamping 'ENHANCED' in pixels.
+    scale: int = 4,
+    out_dir: str | Path | None = None,
+) -> Enhancement:
+    """Crop and Lanczos-upscale an image with Pillow, stamping 'ENHANCED x<scale>' in pixels.
 
-    Saves next to the original as <name>_enh_x<scale>.jpg without modifying the original.
+    Saves next to the original (or in out_dir) as <name>_enh_x<scale>.jpg without
+    modifying the original, and returns an Enhancement matching enhance_frame().
     """
+    if scale not in (2, 4):
+        raise ValueError(f"scale must be 2 or 4, got {scale}")
+
     src = Path(image_path)
-    x, y, w, h = crop_box
-    out_path = src.with_name(f"{src.stem}_enh_x{scale}.jpg")
+    target_dir = Path(out_dir) if out_dir is not None else src.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+    out_path = target_dir / f"{src.stem}_enh_x{scale}.jpg"
 
     with Image.open(src) as img:
-        cropped = img.convert("RGB").crop((x, y, x + w, y + h))
+        img_w, img_h = img.size
+        x, y, w, h = [int(v) for v in crop_box]
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(img_w, x + w)
+        y2 = min(img_h, y + h)
+        cw, ch = x2 - x1, y2 - y1
+        if cw < 8 or ch < 8:
+            raise ValueError(f"Clipped crop_box [{x1}, {y1}, {cw}, {ch}] is too small")
+
+        cropped = img.convert("RGB").crop((x1, y1, x2, y2))
         upscaled = cropped.resize(
-            (w * scale, h * scale),
+            (cw * scale, ch * scale),
             resample=Image.Resampling.LANCZOS,
         )
-        # Burn visible ENHANCED label into pixels so enhanced crops are unmistakable.
         draw = ImageDraw.Draw(upscaled)
-        draw.rectangle([(4, 4), (74, 20)], fill=(0, 0, 0))
-        draw.text((8, 7), "ENHANCED", fill=(255, 255, 0))
-        upscaled.save(out_path, format="JPEG")
+        banner_h = min(upscaled.height, max(20, int(round(upscaled.height * 0.08))))
+        draw.rectangle([(0, 0), (upscaled.width, banner_h)], fill=(220, 0, 0))
+        draw.text((6, max(2, banner_h // 2 - 6)), f"ENHANCED x{scale}", fill=(255, 255, 255))
+        upscaled.save(out_path, format="JPEG", quality=95)
 
-    return out_path
+    return Enhancement(
+        enhanced_path=str(out_path),
+        method="lanczos",
+        scale=scale,
+        model_version="lanczos_v1",
+        crop_box=[x1, y1, cw, ch],
+        search_embedding_source="original",
+    )
 
 
 def _npy_bytes(shape: tuple[int, ...], descr: str, payload: bytes) -> bytes:

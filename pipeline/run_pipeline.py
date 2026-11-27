@@ -80,6 +80,16 @@ def _save_picked_outputs(
         if item.face_obs.embedding is not None:
             save_embedding(emb_path, item.face_obs.embedding)
 
+        face_box_xywh: list[int] | None = None
+        if item.face_obs.face_box is not None:
+            bx1, by1, bx2, by2 = item.face_obs.face_box
+            face_box_xywh = [
+                int(round(bx1)),
+                int(round(by1)),
+                max(1, int(round(bx2 - bx1))),
+                max(1, int(round(by2 - by1))),
+            ]
+
         frame_models.append(
             Frame(
                 frame_id=frame_id,
@@ -95,6 +105,7 @@ def _save_picked_outputs(
                 match_ready=bool(item.is_match_ready),
                 rank_reason=item.rank_reason,
                 crop_path=str(crop_path) if crop_path.exists() else None,
+                face_box=face_box_xywh,
             )
         )
 

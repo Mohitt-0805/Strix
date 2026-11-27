@@ -64,6 +64,7 @@ class Frame(BaseModel):
     match_ready: Optional[bool] = None
     rank_reason: Optional[str] = None
     crop_path: Optional[str] = None
+    face_box: Optional[list[int]] = None
 
 
 class PipelineResult(BaseModel):
