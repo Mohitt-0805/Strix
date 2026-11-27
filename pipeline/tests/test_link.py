@@ -201,3 +201,26 @@ def test_many_tracks_warning() -> None:
     res = link_transaction(tracks, TEST_ZONE, FRAME_W, FRAME_H, tx_offset_sec=10.0, window_sec=5.0)
     assert res.track_count_in_window == 4
     assert "many tracks, possible ID splits" in res.reason
+
+
+def test_dwell_clipped_to_window_length() -> None:
+    """dwell_sec_in_zone must never exceed the window length and anchor_frac <= 1."""
+    # Window is [149.0, 161.0] -> length = 12.0 s; observations run right up to 160.9 s.
+    obs = [
+        {"t": 149.0 + i * 0.5, "box": [240.0, 120.0, 340.0, 320.0], "score": 0.9}
+        for i in range(24)
+    ]
+    obs.append({"t": 160.9, "box": [240.0, 120.0, 340.0, 320.0], "score": 0.9})
+    tr = Track(track_id=1, observations=obs)
+    res = link_transaction(
+        [tr],
+        TEST_ZONE,
+        FRAME_W,
+        FRAME_H,
+        tx_offset_sec=155.0,
+        window_sec=6.0,
+        video_duration_sec=200.0,
+    )
+    assert res.ranking[0]["dwell_sec_in_zone"] <= 12.0
+    assert res.ranking[0]["anchor_in_zone_frac"] <= 1.0
+

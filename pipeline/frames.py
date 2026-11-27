@@ -68,7 +68,12 @@ def video_info(path: str | Path) -> dict[str, Any]:
         display_width, display_height = width, height
 
     raw_duration = video_stream.get("duration") or payload.get("format", {}).get("duration") or 0.0
-    fps = _parse_fps(video_stream.get("r_frame_rate") or video_stream.get("avg_frame_rate") or "0/1")
+    r_fps = _parse_fps(video_stream.get("r_frame_rate") or "0/1")
+    avg_fps = _parse_fps(video_stream.get("avg_frame_rate") or "0/1")
+    fps = r_fps or avg_fps
+    vfr_suspected = bool(
+        r_fps > 0.0 and avg_fps > 0.0 and (abs(avg_fps - r_fps) / max(r_fps, 1e-9)) > 0.01
+    )
 
     return {
         "duration_sec": float(raw_duration),
@@ -79,6 +84,7 @@ def video_info(path: str | Path) -> dict[str, Any]:
         "rotation": rotation,
         "display_width": display_width,
         "display_height": display_height,
+        "vfr_suspected": vfr_suspected,
     }
 
 
@@ -129,13 +135,20 @@ def iter_sampled_frames(
         step_sec = 1.0 / sample_fps
         next_sample_time = float(start_sec)
         frame_index = 0
+        last_timestamp: float | None = None
         yielded = 0
 
         while yielded < MAX_SAMPLED_FRAMES:
             if not cap.grab():
                 break
 
-            timestamp = frame_index / source_fps
+            pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+            pos_sec = float(pos_msec) / 1000.0 if pos_msec is not None else -1.0
+            if pos_sec >= 0.0 and (last_timestamp is None or pos_sec > last_timestamp + 1e-6):
+                timestamp = pos_sec
+            else:
+                timestamp = frame_index / source_fps
+            last_timestamp = timestamp
             frame_index += 1
 
             if timestamp > end_sec + 1e-9:

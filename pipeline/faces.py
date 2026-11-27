@@ -56,12 +56,31 @@ def _cuda_libraries_available(ort_mod: Any) -> bool:
         return False
 
 
+def _resolve_insightface_root() -> str:
+    """Resolve InsightFace root from MODEL_DIR (default data/models), with ~/.insightface fallback."""
+    import os
+    from pathlib import Path
+
+    model_dir = Path(os.environ.get("MODEL_DIR", "data/models"))
+    target_models = model_dir / "models" / "buffalo_l"
+    if target_models.is_dir() and any(target_models.glob("*.onnx")):
+        return str(model_dir)
+
+    legacy_models = Path("~/.insightface").expanduser() / "models" / "buffalo_l"
+    if legacy_models.is_dir() and any(legacy_models.glob("*.onnx")):
+        return "~/.insightface"
+
+    model_dir.mkdir(parents=True, exist_ok=True)
+    return str(model_dir)
+
+
 def _init_face_analysis(provider: str) -> Any:
     """Instantiate and prepare InsightFace buffalo_l for a single provider."""
     from insightface.app import FaceAnalysis
 
     ctx_id = 0 if provider == "CUDAExecutionProvider" else -1
-    app = FaceAnalysis(name="buffalo_l", providers=[provider])
+    root = _resolve_insightface_root()
+    app = FaceAnalysis(name="buffalo_l", root=root, providers=[provider])
     app.prepare(ctx_id=ctx_id, det_size=(640, 640))
     return app
 
