@@ -389,7 +389,8 @@ def run(
 
 
 def _print_summary(res: PipelineResult, result_path: Path) -> None:
-    print(f"\nClip: {res.clip_id} | Track: {res.person_track_id} | Link confidence: {res.link_confidence}")
+    demo_suffix = ' | "served_from_demo_pack": true' if res.served_from_demo_pack else ""
+    print(f"\nClip: {res.clip_id} | Track: {res.person_track_id} | Link confidence: {res.link_confidence}{demo_suffix}")
     if res.link_reason:
         print(f"Link reason: {res.link_reason}")
     if res.selection_reason:
@@ -423,10 +424,13 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=Path("data/outputs"), help="Output directory")
     args = parser.parse_args()
 
+    from pipeline.adapter import get_run
+
     def _print_progress(event: dict[str, Any]) -> None:
         print(f"[progress] {event['fraction']:.2f} | {event['stage']:<14} | {event['message']}")
 
-    res = run(
+    run_fn = get_run()
+    res = run_fn(
         clip_path=args.video,
         tx_offset_sec=args.tx,
         window_sec=args.window,
