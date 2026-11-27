@@ -361,3 +361,27 @@ class SelectionResponse(BaseModel):
 
     run_id: int
     selected_frame_ids: list[str]
+
+
+class EnhanceRequest(BaseModel):
+    """Request body for POST /runs/{run_id}/frames/{frame_id}/enhance."""
+
+    crop_box: list[int] = Field(..., min_length=4, max_length=4)
+    scale: int = 4
+    method: str = "lanczos"
+
+
+class EnhanceResponse(BaseModel):
+    """Non-destructive frame crop enhancement response."""
+
+    run_id: int
+    frame_id: str
+    original_url: str
+    enhanced_url: str
+    method: str
+    scale: int
+    model_version: str
+    crop_box: list[int]
+    face_box: list[int] | None = None
+    search_embedding_source: str
+    cached: bool = False

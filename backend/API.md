@@ -541,6 +541,37 @@ curl -s -X POST http://127.0.0.1:8000/runs/1/selection \
 
 ---
 
+### `POST /runs/{run_id}/frames/{frame_id}/enhance`
+
+Non-destructively crop and upscale a full-frame evidence image (`scale`: `2` or `4`, `method`: `"lanczos"`, `crop_box`: `[x, y, w, h]` in full-frame pixels, `>= 8` px after clipping). Caches by `(frame, crop_box, method, scale)`, preserves original SHA-256, updates `frames.enhancement` / `enhanced=true`, and logs `frame_enhanced`. Invalid parameters return `422 ENHANCE_INVALID`.
+
+**Request:**
+```bash
+curl -s -X POST http://127.0.0.1:8000/runs/1/frames/142/enhance \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"crop_box":[160,80,120,120],"scale":4,"method":"lanczos"}'
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "run_id": 1,
+  "frame_id": "142",
+  "original_url": "/files?p=outputs%2F...%2Fframe_142.jpg&...",
+  "enhanced_url": "/files?p=outputs%2F...%2Fframe_142_enh_x4.jpg&...",
+  "method": "lanczos",
+  "scale": 4,
+  "model_version": "lanczos_v1",
+  "crop_box": [160, 80, 120, 120],
+  "face_box": null,
+  "search_embedding_source": "original",
+  "cached": false
+}
+```
+
+---
+
 ### `GET /runs/{run_id}/evidence.pdf`
 
 Generate and download the ReportLab Platypus Evidence Sheet PDF (`application/pdf`), optionally including cross-clip search results (`?search_id=`). Logs `download_evidence` with `pdf_sha256` in audit details.
