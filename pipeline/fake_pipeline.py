@@ -113,11 +113,12 @@ def fake_enhance(
             (cw * scale, ch * scale),
             resample=Image.Resampling.LANCZOS,
         )
-        draw = ImageDraw.Draw(upscaled)
-        banner_h = min(upscaled.height, max(20, int(round(upscaled.height * 0.08))))
-        draw.rectangle([(0, 0), (upscaled.width, banner_h)], fill=(220, 0, 0))
+        banner_h = max(20, int(round(upscaled.width * 0.12)))
+        canvas = Image.new("RGB", (upscaled.width, upscaled.height + banner_h), color=(220, 0, 0))
+        canvas.paste(upscaled, (0, banner_h))
+        draw = ImageDraw.Draw(canvas)
         draw.text((6, max(2, banner_h // 2 - 6)), f"ENHANCED x{scale}", fill=(255, 255, 255))
-        upscaled.save(out_path, format="JPEG", quality=95)
+        canvas.save(out_path, format="JPEG", quality=95)
 
     return Enhancement(
         enhanced_path=str(out_path),
