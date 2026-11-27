@@ -120,6 +120,18 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `IndexTrack` | `faces`, `reason` | `list[IndexFace]`, `Optional[str]` | `[]`, `None` | Top `faces_per_track` faces, or reason when empty (`"No face found"`, `"Face under <N> px"`). |
 | `IndexFace` | `t`, `quality_score`, `reliability`, `match_ready`, `flags`, `face_box`, `crop_path`, `frame_path`, `embedding_path` | `float`, `float`, `Literal`, `bool`, `list[str]`, `list[float]`, `str`, `str`, `str` | required | Indexed face metadata and saved artifact paths. |
 
+### `SearchResult` & `SearchMatch` (`pipeline/compare.py`)
+| Model | Field | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `SearchResult` | `basis` | `"original" \| "enhanced" \| "none"` | `"original"` | Which crop's embedding drove ranking (`enhanced` only when original fails). |
+| `SearchResult` | `banner` | `str` | `"Possible leads only. A person must verify."` | Mandatory human-verification notice. |
+| `SearchResult` | `reliability_note` | `Optional[str]` | `None` | Set to `"based on ENHANCED image, low reliability"` when `basis == "enhanced"`. |
+| `SearchResult` | `top_level_warning`, `reason` | `Optional[str]`, `Optional[str]` | `None`, `None` | Set when any match warns of disagreement, or when no embedding could be extracted. |
+| `SearchResult` | `matches` | `list[SearchMatch]` | `[]` | Ranked top-K leads. |
+| `SearchMatch` | `track_id`, `t`, `similarity` | `int`, `float`, `float` | required | Matched track ID, timestamp, and primary cosine similarity. |
+| `SearchMatch` | `similarity_secondary`, `delta`, `warning` | `Optional[float]`, `Optional[float]`, `Optional[str]` | `None` | Secondary (enhanced) similarity, `abs` difference, and warning if `delta > disagreement_warn`. |
+| `SearchMatch` | `crop_path`, `reliability`, `match_ready` | `str`, `Optional[str]`, `Optional[bool]` | `""`, `None`, `None` | Matched crop path and quality metadata. |
+
 ### Errors (`pipeline/errors.py`)
 | Exception | `code` | When raised |
 | --- | --- | --- |

@@ -122,6 +122,31 @@ class IndexResult(BaseModel):
     timings_ms: Optional[dict[str, float]] = None
 
 
+class SearchMatch(BaseModel):
+    """Single ranked lead from search_with_enhancement()."""
+
+    track_id: int
+    t: float
+    similarity: float
+    similarity_secondary: Optional[float] = None
+    delta: Optional[float] = None
+    warning: Optional[str] = None
+    crop_path: str = ""
+    reliability: Optional[str] = None
+    match_ready: Optional[bool] = None
+
+
+class SearchResult(BaseModel):
+    """Top-level result from search_with_enhancement()."""
+
+    basis: Literal["original", "enhanced", "none"] = "original"
+    banner: str = "Possible leads only. A person must verify."
+    reliability_note: Optional[str] = None
+    top_level_warning: Optional[str] = None
+    reason: Optional[str] = None
+    matches: list[SearchMatch] = Field(default_factory=list)
+
+
 def load_result(path: str | Path) -> PipelineResult:
     """Load and validate a PipelineResult JSON file from disk."""
     raw_json = Path(path).read_text(encoding="utf-8")

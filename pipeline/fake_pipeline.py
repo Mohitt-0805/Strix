@@ -13,7 +13,16 @@ import zipfile
 
 from PIL import Image, ImageDraw
 
-from pipeline.contract import Enhancement, IndexFace, IndexResult, IndexTrack, PipelineResult, load_result
+from pipeline.contract import (
+    Enhancement,
+    IndexFace,
+    IndexResult,
+    IndexTrack,
+    PipelineResult,
+    SearchMatch,
+    SearchResult,
+    load_result,
+)
 from pipeline.errors import InvalidArgumentError, ZoneNotFoundError, validate_zone_polygon
 from pipeline.link_transaction import load_zone
 
@@ -288,4 +297,51 @@ def index_clip(
     json_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
     _emit(progress_cb, "done", 1.0, "Done (fake)")
     return res
+
+
+def search_with_enhancement(
+    index_dir: str | Path,
+    original_crop_path: str | Path | None,
+    enhanced_crop_path: str | Path | None = None,
+    exclude_track: int | None = None,
+    top_k: int | None = None,
+    original_embedding: Any | None = None,
+    enhanced_embedding: Any | None = None,
+) -> SearchResult:
+    """Fake search_with_enhancement returning seeded SearchResult with no heavy imports."""
+    _ = (index_dir, original_crop_path, original_embedding, enhanced_embedding)
+    rng = random.Random(7)
+    k = int(top_k if top_k is not None else 5)
+    has_enh = enhanced_crop_path is not None
+
+    matches: list[SearchMatch] = []
+    for tid in range(1, min(k, 3) + 1):
+        if exclude_track is not None and tid == int(exclude_track):
+            continue
+        sim = round(0.82 - (tid - 1) * 0.14 + rng.uniform(-0.02, 0.02), 4)
+        sim_sec = round(sim - 0.04, 4) if has_enh else None
+        delta = round(abs(sim - sim_sec), 4) if sim_sec is not None else None
+        matches.append(
+            SearchMatch(
+                track_id=tid,
+                t=round(10.0 + tid * 5.0, 2),
+                similarity=sim,
+                similarity_secondary=sim_sec,
+                delta=delta,
+                warning=None,
+                crop_path=f"fake_track{tid}_crop.jpg",
+                reliability="Medium",
+                match_ready=True,
+            )
+        )
+
+    return SearchResult(
+        basis="original",
+        banner="Possible leads only. A person must verify.",
+        reliability_note=None,
+        top_level_warning=None,
+        reason=None,
+        matches=matches,
+    )
+
 
