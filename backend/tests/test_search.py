@@ -124,15 +124,16 @@ def test_search_same_person_ranks_higher_excludes_query_clip_and_rebuilds(
         assert body["scope"] == SEARCH_SCOPE
         assert body["frame_id"] == "142"
 
+        # Default best_per_clip=True returns 1 top match per other clip (A_two and B_one).
         matches = body["matches"]
-        assert len(matches) == 6  # 3 frames from A_two + 3 frames from B_one
+        assert len(matches) == 2
         assert all(m["clip_id"] != clip_a1 for m in matches)
-
-        a2_scores = [m["score"] for m in matches if m["clip_id"] == clip_a2]
-        b1_scores = [m["score"] for m in matches if m["clip_id"] == clip_b1]
-        assert min(a2_scores) > 0.9
-        assert max(b1_scores) < 0.3
         assert matches[0]["clip_id"] == clip_a2
+        assert matches[0]["score"] > 0.9
+        assert matches[1]["clip_id"] == clip_b1
+        assert matches[1]["score"] < 0.3
+        assert matches[0]["source"] == "run"
+        assert matches[0]["track_id"] is None
 
         # Signed URLs on matches work directly and point to the right files (frame vs crop).
         for m in matches:
@@ -143,6 +144,20 @@ def test_search_same_person_ranks_higher_excludes_query_clip_and_rebuilds(
         assert client.get(matches[0]["crop_url"]).status_code == 200
         assert client.get(matches[0]["frame_url"]).status_code == 200
 
+        # best_per_clip=False returns all 6 frames (3 from A_two + 3 from B_one).
+        all_resp = client.post(
+            "/search",
+            headers=headers,
+            json={"run_id": run_a1, "frame_id": 142, "top_k": 10, "best_per_clip": False},
+        )
+        assert all_resp.status_code == 200
+        all_matches = all_resp.json()["matches"]
+        assert len(all_matches) == 6
+        a2_scores = [m["score"] for m in all_matches if m["clip_id"] == clip_a2]
+        b1_scores = [m["score"] for m in all_matches if m["clip_id"] == clip_b1]
+        assert min(a2_scores) > 0.9
+        assert max(b1_scores) < 0.3
+
         # Saved in searches table and retrievable via GET /searches/{id}.
         search_id = body["search_id"]
         saved_resp = client.get(f"/searches/{search_id}", headers=headers)
@@ -151,12 +166,7 @@ def test_search_same_person_ranks_higher_excludes_query_clip_and_rebuilds(
 
         with client.app.state.session_factory() as db:
             assert db.get(Search, search_id) is not None
-            assert db.query(AuditLog).filter(AuditLog.action == "search").count() == 1
-
-        # POST /clips/{id}/index returns 501 NOT_AVAILABLE while pipeline.index_clip is absent.
-        idx_resp = client.post(f"/clips/{clip_a1}/index", headers=headers)
-        assert idx_resp.status_code == 501
-        assert idx_resp.json()["code"] == "NOT_AVAILABLE"
+            assert db.query(AuditLog).filter(AuditLog.action == "search").count() == 2
 
     # Restart app against the same DB/DATA_DIR: SearchIndex rebuilds automatically at startup.
     with TestClient(create_app(test_settings)) as restarted_client:

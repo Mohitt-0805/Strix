@@ -228,21 +228,29 @@ class SearchRequest(BaseModel):
     run_id: int
     frame_id: str | int
     top_k: int = Field(default=10, ge=1, le=100)
+    best_per_clip: bool = True
+    include_short_tracks: bool = False
 
 
 class SearchMatchOut(BaseModel):
-    """Single cross-clip similarity match."""
+    """Single cross-clip similarity match from a processed run or indexed clip."""
 
+    source: Literal["run", "index"]
+    track_id: int | None = None
+    short_track: bool = False
     clip_id: str
     filename: str
-    run_id: int
-    frame_id: str
+    run_id: int | None = None
+    index_id: int | None = None
+    frame_id: str | None = None
+    t: float | None = None
     timestamp_sec: float
     score: float
     reliability: Literal["High", "Medium", "Low"]
     flags: list[str]
+    flag_scores: dict[str, float] | None = None
     crop_url: str | None = None
-    frame_url: str
+    frame_url: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -257,6 +265,89 @@ class SearchResponse(BaseModel):
     score_note: str
     scope: str
     created_at: datetime
+
+
+class IndexClipRequest(BaseModel):
+    """Optional request body for POST /clips/{id}/index."""
+
+    start_sec: float = Field(default=0.0, ge=0.0)
+    end_sec: float | None = None
+    sample_fps: float = Field(default=1.0, gt=0.0, le=5.0)
+    tracker: Literal["iou", "bytetrack"] = "iou"
+    faces_per_track: int = Field(default=3, ge=1, le=20)
+    atm_id: str | None = Field(default=None, max_length=64)
+
+
+class IndexAcceptedResponse(BaseModel):
+    """202 Accepted response when an index job is queued."""
+
+    index_id: int
+    status: Literal["queued", "running", "done", "failed"] = "queued"
+
+
+class IndexFaceOut(BaseModel):
+    """Indexed face row hydrated with signed URLs (null if file missing)."""
+
+    id: int
+    track_id: int
+    t: float
+    quality_score: float
+    reliability: Literal["High", "Medium", "Low"]
+    match_ready: bool
+    flags: list[str]
+    flag_scores: dict[str, float] | None = None
+    face_box: list[float] | None = None
+    short_track: bool
+    crop_url: str | None = None
+    frame_url: str | None = None
+
+
+class IndexTrackOut(BaseModel):
+    """Tracked person summary in an indexed clip."""
+
+    track_id: int
+    first_t: float
+    last_t: float
+    n_observations: int
+    short_track: bool
+    confidence_note: str | None = None
+    dwell_sec_in_zone: float | None = None
+    reason: str | None = None
+    face_count: int
+    faces: list[IndexFaceOut]
+
+
+class IndexStatusOut(BaseModel):
+    """Summary/status for a clip_indexes job."""
+
+    index_id: int
+    clip_id: str
+    status: Literal["queued", "running", "done", "failed"]
+    stage: str | None = None
+    progress: float | None = None
+    progress_message: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    error_advice: str | None = None
+    start_sec: float
+    end_sec: float
+    sample_fps: float
+    tracker: str
+    faces_per_track: int
+    atm_id: str | None = None
+    total_embeddings: int | None = None
+    timings_ms: dict[str, float] | None = None
+    pipeline_mode: Literal["fake", "real"]
+    created_by: int
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class IndexDetailOut(IndexStatusOut):
+    """Full index status plus tracks and hydrated faces."""
+
+    tracks: list[IndexTrackOut] = Field(default_factory=list)
 
 
 class SelectionRequest(BaseModel):

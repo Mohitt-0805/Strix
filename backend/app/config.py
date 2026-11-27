@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     )
 
     use_fake_pipeline: bool = Field(default=True, alias="USE_FAKE_PIPELINE")
+    auto_index_on_upload: bool = Field(default=True, alias="AUTO_INDEX_ON_UPLOAD")
     data_dir: Path = Field(default=Path("./data"), alias="DATA_DIR")
     jwt_secret: str = Field(..., alias="JWT_SECRET")
     jwt_expire_min: int = Field(default=480, ge=1, alias="JWT_EXPIRE_MIN")

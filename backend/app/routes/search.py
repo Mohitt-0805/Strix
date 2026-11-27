@@ -1,4 +1,4 @@
-"""Cross-clip face embedding similarity search and clip indexing endpoints."""
+"""Cross-clip face embedding similarity search endpoints."""
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
@@ -9,16 +9,16 @@ from backend.app.config import HUMAN_VERIFICATION_NOTICE, Settings
 from backend.app.db import get_db
 from backend.app.deps import get_app_settings, get_client_ip, get_current_user
 from backend.app.errors import AppError
-from backend.app.models import Clip, FrameRecord, Run, Search, User
+from backend.app.models import FrameRecord, Run, Search, User
+from backend.app.routes.indexes import _signed_url_if_exists
 from backend.app.schemas import SearchMatchOut, SearchRequest, SearchResponse
 from backend.app.services.search_index import SearchIndex, load_and_normalize_embedding
 from backend.app.services.storage import from_rel
-from backend.app.signing import make_signed_file_url
 
 router = APIRouter(tags=["search"])
 
 SCORE_NOTE = "uncalibrated similarity, tune on sample data"
-SEARCH_SCOPE = "frames from processed runs only"
+SEARCH_SCOPE = "frames from processed runs and indexed clips"
 
 
 def _hydrate_matches(
@@ -26,27 +26,29 @@ def _hydrate_matches(
     user_id: int,
     settings: Settings,
 ) -> list[SearchMatchOut]:
-    """Attach fresh signed crop_url and frame_url to stored search match entries."""
+    """Attach fresh signed crop_url and frame_url (null if missing) to matches."""
     out: list[SearchMatchOut] = []
     for item in raw_matches:
-        frame_rel = item["frame_path_rel"]
+        frame_rel = item.get("frame_path_rel")
         crop_rel = item.get("crop_path_rel")
         out.append(
             SearchMatchOut(
+                source=item.get("source", "run"),
+                track_id=item.get("track_id"),
+                short_track=bool(item.get("short_track", False)),
                 clip_id=item["clip_id"],
                 filename=item["filename"],
-                run_id=item["run_id"],
-                frame_id=str(item["frame_id"]),
+                run_id=item.get("run_id"),
+                index_id=item.get("index_id"),
+                frame_id=str(item["frame_id"]) if item.get("frame_id") is not None else None,
+                t=float(item["t"]) if item.get("t") is not None else None,
                 timestamp_sec=float(item["timestamp_sec"]),
                 score=float(item["score"]),
                 reliability=item["reliability"],
                 flags=list(item.get("flags") or []),
-                crop_url=(
-                    make_signed_file_url(crop_rel, user_id, settings)
-                    if crop_rel
-                    else None
-                ),
-                frame_url=make_signed_file_url(frame_rel, user_id, settings),
+                flag_scores=item.get("flag_scores"),
+                crop_url=_signed_url_if_exists(crop_rel, user_id, settings),
+                frame_url=_signed_url_if_exists(frame_rel, user_id, settings),
             )
         )
     return out
@@ -60,7 +62,7 @@ def search_similar_faces(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
 ) -> SearchResponse:
-    """Search processed runs from OTHER clips using a frame's 512-d embedding."""
+    """Search processed runs and indexed clips from OTHER clips."""
     run = db.get(Run, payload.run_id)
     if run is None:
         raise AppError(status_code=404, code="RUN_NOT_FOUND", detail="Run not found.")
@@ -109,18 +111,26 @@ def search_similar_faces(
         query_vec,
         top_k=payload.top_k,
         exclude_clip_id=run.clip_id,
+        best_per_clip=payload.best_per_clip,
+        include_short_tracks=payload.include_short_tracks,
     )
 
     stored_results = [
         {
+            "source": hit.source,
+            "track_id": hit.track_id,
+            "short_track": hit.short_track,
             "clip_id": hit.clip_id,
             "filename": hit.filename,
             "run_id": hit.run_id,
+            "index_id": hit.index_id,
             "frame_id": hit.frame_id,
+            "t": hit.t,
             "timestamp_sec": hit.timestamp_sec,
             "score": hit.score,
             "reliability": hit.reliability,
             "flags": hit.flags,
+            "flag_scores": hit.flag_scores,
             "frame_path_rel": hit.frame_path_rel,
             "crop_path_rel": hit.crop_path_rel,
         }
@@ -150,6 +160,8 @@ def search_similar_faces(
             "run_id": run.id,
             "frame_id": frame_id_text,
             "top_k": payload.top_k,
+            "best_per_clip": payload.best_per_clip,
+            "include_short_tracks": payload.include_short_tracks,
             "match_count": len(stored_results),
         },
         ip=get_client_ip(request),
@@ -196,32 +208,4 @@ def get_search(
         score_note=SCORE_NOTE,
         scope=SEARCH_SCOPE,
         created_at=search_row.created_at,
-    )
-
-
-@router.post("/clips/{clip_id}/index")
-def index_clip_endpoint(
-    clip_id: str,
-    _current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> dict[str, str]:
-    """Placeholder for clip-wide indexing until pipeline.index_clip is implemented."""
-    clip = db.get(Clip, clip_id)
-    if clip is None:
-        raise AppError(status_code=404, code="CLIP_NOT_FOUND", detail="Clip not found.")
-
-    # TODO: Wire pipeline.index_clip once Mohit implements pipeline/index_clip.py.
-    try:
-        import pipeline.index_clip  # type: ignore[import-not-found]  # noqa: F401
-    except ImportError as exc:
-        raise AppError(
-            status_code=501,
-            code="NOT_AVAILABLE",
-            detail="Clip-wide indexing (pipeline.index_clip) is not available yet.",
-        ) from exc
-
-    raise AppError(
-        status_code=501,
-        code="NOT_AVAILABLE",
-        detail="Clip-wide indexing integration is pending.",
     )

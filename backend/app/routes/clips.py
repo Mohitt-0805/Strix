@@ -19,10 +19,11 @@ from backend.app.deps import get_app_settings, get_client_ip, get_current_user
 from backend.app.errors import AppError
 from backend.app.models import Clip, User
 from backend.app.routes.files import stream_file_response
+from backend.app.routes.indexes import enqueue_clip_index
 from backend.app.schemas import ClipOut, ClipPatchRequest
 from backend.app.services.probe import probe_video
 from backend.app.services.storage import from_rel, sanitize_filename, to_rel
-from backend.app.services.zones import validate_zone_polygon_norm
+from backend.app.services.zones import get_valid_zone_ids, validate_zone_polygon_norm
 from backend.app.signing import make_signed_file_url
 
 router = APIRouter(prefix="/clips", tags=["clips"])
@@ -212,6 +213,19 @@ async def upload_clip(
         },
         ip=get_client_ip(request),
     )
+
+    if settings.auto_index_on_upload and clip.duration_sec > 0:
+        valid_zones = get_valid_zone_ids()
+        auto_atm = clip.atm_id if clip.atm_id in valid_zones else None
+        enqueue_clip_index(
+            db=db,
+            clip=clip,
+            user_id=current_user.id,
+            settings=settings,
+            job_manager=request.app.state.job_manager,
+            atm_id=auto_atm,
+        )
+
     return clip_to_out(clip, current_user.id, settings)
 
 

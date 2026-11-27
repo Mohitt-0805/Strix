@@ -154,6 +154,85 @@ class FrameRecord(Base):
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class ClipIndex(Base):
+    """Background search-index job over a clip time range."""
+
+    __tablename__ = "clip_indexes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    clip_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("clips.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_advice: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    end_sec: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_fps: Mapped[float] = mapped_column(Float, nullable=False)
+    tracker: Mapped[str] = mapped_column(String(32), nullable=False)
+    faces_per_track: Mapped[int] = mapped_column(Integer, nullable=False)
+    atm_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    npz_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    json_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    total_embeddings: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timings_ms: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now_naive
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class IndexTrackRecord(Base):
+    """Per-track summary row produced by a clip_indexes job."""
+
+    __tablename__ = "index_tracks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    index_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clip_indexes.id"), nullable=False, index=True
+    )
+    track_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_t: Mapped[float] = mapped_column(Float, nullable=False)
+    last_t: Mapped[float] = mapped_column(Float, nullable=False)
+    n_observations: Mapped[int] = mapped_column(Integer, nullable=False)
+    short_track: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dwell_sec_in_zone: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    face_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class IndexFaceRecord(Base):
+    """Indexed face observation belonging to a tracked person in clip_indexes."""
+
+    __tablename__ = "index_faces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    index_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clip_indexes.id"), nullable=False, index=True
+    )
+    track_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    t: Mapped[float] = mapped_column(Float, nullable=False)
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False)
+    reliability: Mapped[str] = mapped_column(String(16), nullable=False)
+    match_ready: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    flags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    flag_scores: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
+    face_box: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    crop_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    frame_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    embedding_rel: Mapped[str] = mapped_column(String(512), nullable=False)
+    short_track: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class Search(Base):
     """Persisted similarity search query and raw match results."""
 

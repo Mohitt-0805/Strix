@@ -22,6 +22,7 @@ from backend.app.routes.clips import router as clips_router
 from backend.app.routes.evidence import router as evidence_router
 from backend.app.routes.files import router as files_router
 from backend.app.routes.frames import router as frames_router
+from backend.app.routes.indexes import router as indexes_router
 from backend.app.routes.runs import router as runs_router
 from backend.app.routes.search import router as search_router
 from backend.app.routes.users import router as users_router
@@ -107,6 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(files_router)
     application.include_router(runs_router)
     application.include_router(frames_router)
+    application.include_router(indexes_router)
     application.include_router(search_router)
     application.include_router(evidence_router)
     application.include_router(zones_router)

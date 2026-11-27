@@ -11,7 +11,13 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.models import Clip, FrameRecord, Run
+from backend.app.models import (
+    Clip,
+    ClipIndex,
+    FrameRecord,
+    IndexFaceRecord,
+    Run,
+)
 from backend.app.services.storage import from_rel
 
 logger = logging.getLogger(__name__)
@@ -71,33 +77,45 @@ def load_and_normalize_embedding(path: Path, embed_dim: int) -> np.ndarray | Non
 
 @dataclass(frozen=True)
 class IndexItem:
-    """Single indexed frame embedding and associated metadata."""
+    """Single indexed embedding from either a processed run or an indexed clip."""
 
     clip_id: str
     filename: str
-    run_id: int
-    frame_id: str
+    run_id: int | None
+    frame_id: str | None
     timestamp_sec: float
     reliability: str
     flags: tuple[str, ...]
-    frame_path_rel: str
+    frame_path_rel: str | None
     crop_path_rel: str | None
     vector: np.ndarray
+    source: Literal["run", "index"] = "run"
+    index_id: int | None = None
+    t: float | None = None
+    track_id: int | None = None
+    short_track: bool = False
+    flag_scores: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
 class SearchHit:
     """Ranked match returned by SearchIndex.search()."""
 
+    source: Literal["run", "index"]
+    track_id: int | None
+    short_track: bool
     clip_id: str
     filename: str
-    run_id: int
-    frame_id: str
+    run_id: int | None
+    index_id: int | None
+    frame_id: str | None
+    t: float | None
     timestamp_sec: float
     score: float
     reliability: str
     flags: list[str]
-    frame_path_rel: str
+    flag_scores: dict[str, float] | None
+    frame_path_rel: str | None
     crop_path_rel: str | None
 
 
@@ -155,10 +173,11 @@ class SearchIndex:
         """Validate, normalise, and add items to the index; return count added."""
         accepted: list[IndexItem] = []
         for item in items:
+            ref = f"{item.source}={item.run_id if item.source == 'run' else item.index_id}"
             normed = validate_and_normalize_vector(
                 item.vector,
                 self.embed_dim,
-                label=f"run={item.run_id}/frame={item.frame_id}",
+                label=f"{ref}/frame={item.frame_id if item.frame_id is not None else item.t}",
             )
             if normed is None:
                 continue
@@ -167,13 +186,19 @@ class SearchIndex:
                     clip_id=item.clip_id,
                     filename=item.filename,
                     run_id=item.run_id,
-                    frame_id=str(item.frame_id),
+                    frame_id=str(item.frame_id) if item.frame_id is not None else None,
                     timestamp_sec=item.timestamp_sec,
                     reliability=item.reliability,
                     flags=tuple(item.flags),
                     frame_path_rel=item.frame_path_rel,
                     crop_path_rel=item.crop_path_rel,
                     vector=normed,
+                    source=item.source,
+                    index_id=item.index_id,
+                    t=item.t,
+                    track_id=item.track_id,
+                    short_track=bool(item.short_track),
+                    flag_scores=dict(item.flag_scores) if item.flag_scores is not None else None,
                 )
             )
 
@@ -186,10 +211,28 @@ class SearchIndex:
         return len(accepted)
 
     def remove_run(self, run_id: int) -> int:
-        """Remove all vectors belonging to run_id and return how many were removed."""
+        """Remove all run-source vectors belonging to run_id."""
         with self._lock:
             before = len(self._items)
-            self._items = [item for item in self._items if item.run_id != run_id]
+            self._items = [
+                item
+                for item in self._items
+                if not (item.source == "run" and item.run_id == run_id)
+            ]
+            removed = before - len(self._items)
+            if removed > 0:
+                self._rebuild_structures()
+            return removed
+
+    def remove_index(self, index_id: int) -> int:
+        """Remove all index-source vectors belonging to index_id."""
+        with self._lock:
+            before = len(self._items)
+            self._items = [
+                item
+                for item in self._items
+                if not (item.source == "index" and item.index_id == index_id)
+            ]
             removed = before - len(self._items)
             if removed > 0:
                 self._rebuild_structures()
@@ -200,6 +243,9 @@ class SearchIndex:
         vec: np.ndarray,
         top_k: int,
         exclude_clip_id: str | None = None,
+        *,
+        best_per_clip: bool = True,
+        include_short_tracks: bool = False,
     ) -> list[SearchHit]:
         """Return top_k matches from OTHER clips sorted descending by cosine score."""
         if top_k <= 0:
@@ -227,20 +273,33 @@ class SearchIndex:
                 scored_pairs = [(int(idx), float(sims[idx])) for idx in order]
 
             hits: list[SearchHit] = []
+            seen_clips: set[str] = set()
             for idx, score in scored_pairs:
                 item = self._items[idx]
                 if exclude_clip_id is not None and item.clip_id == exclude_clip_id:
                     continue
+                if item.short_track and not include_short_tracks:
+                    continue
+                if best_per_clip and item.clip_id in seen_clips:
+                    continue
+                seen_clips.add(item.clip_id)
+
                 hits.append(
                     SearchHit(
+                        source=item.source,
+                        track_id=item.track_id,
+                        short_track=item.short_track,
                         clip_id=item.clip_id,
                         filename=item.filename,
                         run_id=item.run_id,
+                        index_id=item.index_id,
                         frame_id=item.frame_id,
+                        t=item.t,
                         timestamp_sec=item.timestamp_sec,
                         score=round(score, 6),
                         reliability=item.reliability,
                         flags=list(item.flags),
+                        flag_scores=dict(item.flag_scores) if item.flag_scores is not None else None,
                         frame_path_rel=item.frame_path_rel,
                         crop_path_rel=item.crop_path_rel,
                     )
@@ -250,8 +309,10 @@ class SearchIndex:
             return hits
 
     def rebuild_from_db(self, db: Session, data_dir: Path) -> int:
-        """Clear and rebuild the index from all completed runs in SQLite."""
-        rows = db.execute(
+        """Clear and rebuild the index from all completed runs and clip_indexes in SQLite."""
+        loaded_items: list[IndexItem] = []
+
+        run_rows = db.execute(
             select(FrameRecord, Run, Clip)
             .join(Run, FrameRecord.run_id == Run.id)
             .join(Clip, Run.clip_id == Clip.id)
@@ -259,8 +320,7 @@ class SearchIndex:
             .order_by(Run.id.asc(), FrameRecord.id.asc())
         ).all()
 
-        loaded_items: list[IndexItem] = []
-        for frame_row, run_row, clip_row in rows:
+        for frame_row, run_row, clip_row in run_rows:
             try:
                 emb_path = from_rel(
                     frame_row.embedding_path_rel,
@@ -269,7 +329,7 @@ class SearchIndex:
                 )
             except Exception as exc:
                 logger.warning(
-                    "Skipping invalid embedding path '%s' (run=%s, frame=%s): %s",
+                    "Skipping invalid run embedding path '%s' (run=%s, frame=%s): %s",
                     frame_row.embedding_path_rel,
                     run_row.id,
                     frame_row.frame_id,
@@ -283,6 +343,7 @@ class SearchIndex:
 
             loaded_items.append(
                 IndexItem(
+                    source="run",
                     clip_id=clip_row.id,
                     filename=clip_row.original_filename,
                     run_id=run_row.id,
@@ -290,8 +351,62 @@ class SearchIndex:
                     timestamp_sec=frame_row.timestamp_sec,
                     reliability=frame_row.reliability,
                     flags=tuple(frame_row.flags or []),
+                    flag_scores=dict(frame_row.flag_scores) if frame_row.flag_scores else None,
                     frame_path_rel=frame_row.frame_path_rel,
                     crop_path_rel=frame_row.crop_path_rel,
+                    vector=vec,
+                    track_id=None,
+                    short_track=False,
+                )
+            )
+
+        idx_rows = db.execute(
+            select(IndexFaceRecord, ClipIndex, Clip)
+            .join(ClipIndex, IndexFaceRecord.index_id == ClipIndex.id)
+            .join(Clip, ClipIndex.clip_id == Clip.id)
+            .where(ClipIndex.status == "done")
+            .order_by(ClipIndex.id.asc(), IndexFaceRecord.id.asc())
+        ).all()
+
+        for face_row, idx_row, clip_row in idx_rows:
+            try:
+                emb_path = from_rel(
+                    face_row.embedding_rel,
+                    data_dir,
+                    allowed_roots=("outputs",),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid index embedding path '%s' (index=%s, track=%s, t=%s): %s",
+                    face_row.embedding_rel,
+                    idx_row.id,
+                    face_row.track_id,
+                    face_row.t,
+                    exc,
+                )
+                continue
+
+            vec = load_and_normalize_embedding(emb_path, self.embed_dim)
+            if vec is None:
+                continue
+
+            loaded_items.append(
+                IndexItem(
+                    source="index",
+                    clip_id=clip_row.id,
+                    filename=clip_row.original_filename,
+                    run_id=None,
+                    index_id=idx_row.id,
+                    frame_id=None,
+                    t=face_row.t,
+                    timestamp_sec=face_row.t,
+                    track_id=face_row.track_id,
+                    short_track=bool(face_row.short_track),
+                    reliability=face_row.reliability,
+                    flags=tuple(face_row.flags or []),
+                    flag_scores=dict(face_row.flag_scores) if face_row.flag_scores else None,
+                    frame_path_rel=face_row.frame_rel,
+                    crop_path_rel=face_row.crop_rel,
                     vector=vec,
                 )
             )

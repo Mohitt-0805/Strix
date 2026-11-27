@@ -2,7 +2,7 @@
 
 Base URL (local): `http://127.0.0.1:8000`
 
-> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
+> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A and Phase 6B), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
 
 ## Error Format
 
@@ -427,14 +427,18 @@ curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
 
 ### `POST /search`
 
-Search processed frames from **other** clips using a completed run frame's 512-d L2-normalised embedding. Persists the result in `searches` and logs a `search` audit entry.
+Search processed run frames (`source: "run"`) and indexed clip faces (`source: "index"`) from **other** clips using a completed run frame's 512-d L2-normalised embedding. Persists the result in `searches` and logs a `search` audit entry.
+
+Options:
+- `best_per_clip` (default `true`): keep only the highest-scoring match per other clip.
+- `include_short_tracks` (default `false`): include `short_track` indexed faces when `true`.
 
 **Request:**
 ```bash
 curl -s -X POST http://127.0.0.1:8000/search \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"run_id":1,"frame_id":"142","top_k":10}'
+  -d '{"run_id":1,"frame_id":"142","top_k":10,"best_per_clip":true,"include_short_tracks":false}'
 ```
 
 **Response (`200 OK`):**
@@ -446,21 +450,27 @@ curl -s -X POST http://127.0.0.1:8000/search \
   "top_k": 10,
   "matches": [
     {
+      "source": "run",
+      "track_id": null,
+      "short_track": false,
       "clip_id": "<other-clip-uuid>",
       "filename": "A_two.mp4",
       "run_id": 2,
+      "index_id": null,
       "frame_id": "142",
+      "t": null,
       "timestamp_sec": 5.68,
       "score": 0.978,
       "reliability": "High",
       "flags": [],
+      "flag_scores": null,
       "crop_url": "/files?...",
       "frame_url": "/files?..."
     }
   ],
   "notice": "Possible matches only. A human investigator must verify every result.",
   "score_note": "uncalibrated similarity, tune on sample data",
-  "scope": "frames from processed runs only",
+  "scope": "frames from processed runs and indexed clips",
   "created_at": "2026-11-26T16:38:00.000000"
 }
 ```
@@ -469,13 +479,41 @@ curl -s -X POST http://127.0.0.1:8000/search \
 
 ### `GET /searches/{id}`
 
-Retrieve a saved search result with freshly signed `crop_url` and `frame_url` links.
+Retrieve a saved search result with freshly signed `crop_url` and `frame_url` links (`null` if image missing).
 
 ---
 
 ### `POST /clips/{id}/index`
 
-Reserved clip-wide indexing endpoint. Returns `501 NOT_AVAILABLE` until `pipeline.index_clip` is implemented.
+Queue a clip-wide face indexing job on the single-worker priority queue (priority `1`; processing runs are priority `0`). Also triggered automatically on `POST /clips` upload when `AUTO_INDEX_ON_UPLOAD=1`. Ranges over `600s` return `422 INDEX_RANGE_TOO_LONG`.
+
+**Request (body optional):**
+```bash
+curl -s -X POST http://127.0.0.1:8000/clips/$CLIP_ID/index \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"start_sec":0,"end_sec":null,"sample_fps":1.0,"tracker":"iou","faces_per_track":3,"atm_id":"atm_demo"}'
+```
+
+**Response (`202 Accepted`):**
+```json
+{
+  "index_id": 1,
+  "status": "queued"
+}
+```
+
+---
+
+### `GET /clips/{id}/indexes`
+
+List all indexing jobs for a clip newest-first.
+
+---
+
+### `GET /indexes/{index_id}`
+
+Return index status, `stage`, `progress`, `progress_message`, `error_code`, `error_message`, `error_advice`, and `tracks` (with per-track `short_track` / `confidence_note`, `reason` when faceless, and `faces` with signed `crop_url` and `frame_url`, or `null` if missing).
 
 ---
 

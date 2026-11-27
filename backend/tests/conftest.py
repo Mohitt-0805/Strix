@@ -22,6 +22,7 @@ def test_settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         USE_FAKE_PIPELINE=True,
+        AUTO_INDEX_ON_UPLOAD=False,
         DATA_DIR=tmp_path / "data",
         JWT_SECRET=TEST_JWT_SECRET,
         CORS_ORIGINS="http://localhost:5173,http://localhost:3000",
