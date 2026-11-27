@@ -44,6 +44,18 @@ def main() -> int:
         print(f"MISSING/ERROR (face app): {exc}")
         ok = False
 
+    try:
+        from pipeline.occluders import get_model
+
+        if get_model() is not None:
+            print("OK: OpenCLIP ViT-B-32 (openai) loaded offline.")
+        else:
+            print("MISSING/ERROR (occluder CLIP): get_model() returned None")
+            ok = False
+    except Exception as exc:
+        print(f"MISSING/ERROR (occluder CLIP): {exc}")
+        ok = False
+
     return 0 if ok else 1
 
 

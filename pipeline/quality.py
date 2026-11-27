@@ -29,6 +29,7 @@ class ScoredFace:
     is_match_ready: bool
     match_ready_reasons: list[str]
     rank_reason: str = ""
+    flag_scores: dict[str, float] | None = None
 
 
 def load_quality_config(config_path: Path | None = None) -> dict[str, Any]:
@@ -156,6 +157,7 @@ def score_face(
 def match_ready(
     face_obs: Any,
     cfg: dict[str, Any] | None = None,
+    flags: list[str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Return (True, []) if face_obs meets frontal/clarity thresholds, else (False, reasons)."""
     config = cfg or load_quality_config()
@@ -164,6 +166,11 @@ def match_ready(
 
     if not getattr(face_obs, "face_found", False):
         return False, ["no face detected"]
+
+    blocking = set(config.get("reliability", {}).get("match_ready_blocking_flags", ["mask", "helmet"]))
+    for fl in flags or []:
+        if fl in blocking:
+            reasons.append(f"occluded by {fl}")
 
     det_score = float(face_obs.det_score or 0.0)
     min_det = float(mr_cfg["min_det_score"])
@@ -195,15 +202,17 @@ def compute_reliability(
     cfg: dict[str, Any] | None = None,
     face_width_px: float | None = None,
 ) -> Literal["High", "Medium", "Low"]:
-    """Assign High / Medium / Low reliability with pose, partial, and size caps."""
+    """Assign High / Medium / Low reliability using config-driven flag caps."""
     config = cfg or load_quality_config()
     r_cfg = config["reliability"]
+    low_only = set(r_cfg.get("low_only_flags", ["profile view", "looking down", "mask", "helmet"]))
+    no_high = set(r_cfg.get("no_high_flags", ["partial face", "small face", "cap"]))
 
-    if "profile view" in flags or "looking down" in flags:
+    if any(f in low_only for f in flags):
         return "Low"
     if face_width_px is not None and float(face_width_px) < 50.0:
         return "Low"
-    high_blocked = "partial face" in flags or "small face" in flags or (
+    high_blocked = any(f in no_high for f in flags) or (
         face_width_px is not None and float(face_width_px) < 60.0
     )
     if not high_blocked and quality_score >= float(r_cfg["high_min_score"]) and is_match_ready:
@@ -218,12 +227,38 @@ def score_track_faces(
     frames_by_time: dict[float, Any],
     cfg: dict[str, Any] | None = None,
     other_person_boxes_by_time: dict[float, list[list[float]]] | None = None,
+    timings_out: dict[str, float] | None = None,
 ) -> list[ScoredFace]:
     """Score every FaceObs in a track against its corresponding frame."""
+    import time
+    from pipeline.occluders import head_crop, score_occluders_batch
+
     config = cfg or load_quality_config()
     scored: list[ScoredFace] = []
 
-    for obs in face_obs_list:
+    # Batch CLIP occluder detection across all valid face observations in this track.
+    t_occ = time.perf_counter()
+    valid_indices: list[int] = []
+    head_crops: list[Any] = []
+    for i, obs in enumerate(face_obs_list):
+        frame = frames_by_time.get(float(obs.t))
+        if getattr(obs, "face_found", False) and obs.face_box is not None and frame is not None:
+            hc = head_crop(frame, obs.face_box)
+            if hc is not None:
+                valid_indices.append(i)
+                head_crops.append(hc)
+
+    occ_flags_by_idx: dict[int, list[str]] = {}
+    occ_scores_by_idx: dict[int, dict[str, float]] = {}
+    if head_crops:
+        flagged_list, scores_list = score_occluders_batch(head_crops)
+        for idx, hits, sc in zip(valid_indices, flagged_list, scores_list):
+            occ_flags_by_idx[idx] = [h["flag"] for h in hits]
+            occ_scores_by_idx[idx] = sc
+    if timings_out is not None:
+        timings_out["occluders"] = timings_out.get("occluders", 0.0) + (time.perf_counter() - t_occ) * 1000.0
+
+    for i, obs in enumerate(face_obs_list):
         t = float(obs.t)
         frame = frames_by_time.get(t)
         if not getattr(obs, "face_found", False) or frame is None:
@@ -244,8 +279,10 @@ def score_track_faces(
 
         metrics, q_score = score_face(obs, frame, config)
         other_boxes = (other_person_boxes_by_time or {}).get(t)
-        flags = compute_flags(obs, frame, metrics, config, other_person_boxes=other_boxes)
-        ready, reasons = match_ready(obs, config)
+        occ_flags = occ_flags_by_idx.get(i, [])
+        occ_scores = occ_scores_by_idx.get(i) or None
+        flags = compute_flags(obs, frame, metrics, config, other_person_boxes=other_boxes, occluder_flags=occ_flags)
+        ready, reasons = match_ready(obs, config, flags=flags)
         rel = compute_reliability(q_score, ready, flags, config, face_width_px=obs.face_width_px)
         scored.append(
             ScoredFace(
@@ -257,6 +294,7 @@ def score_track_faces(
                 flags=flags,
                 is_match_ready=ready,
                 match_ready_reasons=reasons,
+                flag_scores=occ_scores,
             )
         )
 

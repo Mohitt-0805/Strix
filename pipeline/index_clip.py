@@ -144,7 +144,7 @@ def index_clip(
     npz_path = index_dir / "index.npz"
     json_path = index_dir / "index.json"
 
-    timings_ms: dict[str, float] = {"frames": 0.0, "detect_persons": 0.0, "track": 0.0, "faces": 0.0, "quality": 0.0, "save": 0.0}
+    timings_ms: dict[str, float] = {"frames": 0.0, "detect_persons": 0.0, "track": 0.0, "faces": 0.0, "occluders": 0.0, "quality": 0.0, "save": 0.0}
 
     _emit_progress(progress_cb, "frames", 0.05, f"Streaming frames [{start_sec:.1f}, {actual_end:.1f}]")
     trk = _build_tracker(tracker, float(sample_fps))
@@ -262,8 +262,16 @@ def index_clip(
         }
 
         t_qual = time.perf_counter()
-        scored = score_track_faces(face_obs, frames_by_time, other_person_boxes_by_time=other_boxes_for_track)
-        timings_ms["quality"] += (time.perf_counter() - t_qual) * 1000.0
+        occ_timings: dict[str, float] = {}
+        scored = score_track_faces(
+            face_obs,
+            frames_by_time,
+            other_person_boxes_by_time=other_boxes_for_track,
+            timings_out=occ_timings,
+        )
+        occ_ms = occ_timings.get("occluders", 0.0)
+        timings_ms["occluders"] += occ_ms
+        timings_ms["quality"] += max(0.0, (time.perf_counter() - t_qual) * 1000.0 - occ_ms)
 
         found = [s for s in scored if s.face_obs.face_found and s.face_obs.embedding is not None]
         valid = [s for s in found if float(s.face_obs.face_width_px or 0.0) >= float(min_face_px)]
@@ -324,6 +332,7 @@ def index_clip(
                     crop_path=str(crop_path),
                     frame_path=str(frame_path),
                     embedding_path=str(emb_path),
+                    flag_scores=item.flag_scores,
                 )
                 track_faces.append(face_entry)
                 all_embeddings.append(vec)

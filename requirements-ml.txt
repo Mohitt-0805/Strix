@@ -6,3 +6,4 @@ supervision
 insightface
 onnxruntime-gpu
 numpy
+open_clip_torch==4.2.2

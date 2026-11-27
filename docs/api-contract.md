@@ -101,11 +101,12 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `rank_reason` | `Optional[str]` | `None` | Short summary of why the frame ranked in its position. |
 | `crop_path` | `Optional[str]` | `None` | Path to the saved face crop `.jpg`. |
 | `face_box` | `Optional[list[int]]` | `None` | `[x, y, w, h]` detected face box in full-frame pixels. |
+| `flag_scores` | `Optional[dict[str, float]]` | `None` | Model-estimated probabilities `flag -> p` (e.g. `cap`, `mask`, `helmet`). |
 
 ### Constants (`pipeline/contract.py`)
 - `RELIABILITY_VALUES`: `("High", "Medium", "Low")`
-- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down", "overlapping person")`
-- `FLAG_VOCAB["planned"]`: `("cap", "mask", "helmet")`
+- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down", "overlapping person", "cap", "mask", "helmet")`
+- `FLAG_VOCAB["planned"]`: `()`
 
 ### `IndexResult`, `IndexTrack`, `IndexFace` (`pipeline/index_clip.py`)
 | Model | Field | Type | Default | Description |
