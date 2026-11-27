@@ -31,3 +31,15 @@ def get_index_clip() -> Callable[..., object]:
     from pipeline.index_clip import index_clip
 
     return index_clip
+
+
+def get_search() -> Callable[..., object]:
+    """Return fake_pipeline.search_with_enhancement if USE_FAKE_PIPELINE is truthy, else compare.search_with_enhancement."""
+    if _use_fake():
+        from pipeline.fake_pipeline import search_with_enhancement
+
+        return search_with_enhancement
+
+    from pipeline.compare import search_with_enhancement
+
+    return search_with_enhancement
