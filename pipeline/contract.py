@@ -17,12 +17,11 @@ FLAG_VOCAB: dict[str, tuple[str, ...]] = {
         "profile view",
         "looking down",
         "overlapping person",
-    ),
-    "planned": (
         "cap",
         "mask",
         "helmet",
     ),
+    "planned": (),
 }
 
 
@@ -65,6 +64,7 @@ class Frame(BaseModel):
     rank_reason: Optional[str] = None
     crop_path: Optional[str] = None
     face_box: Optional[list[int]] = None
+    flag_scores: Optional[dict[str, float]] = None
 
 
 class PipelineResult(BaseModel):
@@ -94,6 +94,7 @@ class IndexFace(BaseModel):
     crop_path: str
     frame_path: str
     embedding_path: str
+    flag_scores: Optional[dict[str, float]] = None
 
 
 class IndexTrack(BaseModel):

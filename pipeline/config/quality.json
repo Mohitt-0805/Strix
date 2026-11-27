@@ -45,6 +45,9 @@
   },
   "reliability": {
     "high_min_score": 0.70,
-    "medium_min_score": 0.50
+    "medium_min_score": 0.50,
+    "low_only_flags": ["profile view", "looking down", "mask", "helmet"],
+    "no_high_flags": ["partial face", "small face", "cap"],
+    "match_ready_blocking_flags": ["mask", "helmet"]
   }
 }
