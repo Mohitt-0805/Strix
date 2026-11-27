@@ -258,3 +258,16 @@ class SearchResponse(BaseModel):
     score_note: str
     scope: str
     created_at: datetime
+
+
+class SelectionRequest(BaseModel):
+    """Request body for POST /runs/{run_id}/selection."""
+
+    frame_ids: list[str | int]
+
+
+class SelectionResponse(BaseModel):
+    """Updated frame selection for a run."""
+
+    run_id: int
+    selected_frame_ids: list[str]

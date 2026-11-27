@@ -453,5 +453,43 @@ Retrieve a saved search result with freshly signed `crop_url` and `frame_url` li
 
 Reserved clip-wide indexing endpoint. Returns `501 NOT_AVAILABLE` until `pipeline.index_clip` is implemented.
 
+---
+
+## Selection & Evidence PDF Endpoints
+
+### `POST /runs/{run_id}/selection`
+
+Replace the selected frames set for a completed run, validating all IDs belong to the run, and record a `frames_selected` audit entry.
+
+**Request:**
+```bash
+curl -s -X POST http://127.0.0.1:8000/runs/1/selection \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"frame_ids":["142","158"]}'
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "run_id": 1,
+  "selected_frame_ids": ["142", "158"]
+}
+```
+
+---
+
+### `GET /runs/{run_id}/evidence.pdf`
+
+Generate and download the ReportLab Platypus Evidence Sheet PDF (`application/pdf`), optionally including cross-clip search results (`?search_id=`). Logs `download_evidence` with `pdf_sha256` in audit details.
+
+**Request:**
+```bash
+curl -s -o /tmp/evidence_test.pdf \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8000/runs/1/evidence.pdf?search_id=1"
+```
+
+
 
 

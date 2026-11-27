@@ -19,7 +19,9 @@ from backend.app.errors import AppError, register_error_handlers
 from backend.app.routes.audit import router as audit_router
 from backend.app.routes.auth import router as auth_router
 from backend.app.routes.clips import router as clips_router
+from backend.app.routes.evidence import router as evidence_router
 from backend.app.routes.files import router as files_router
+from backend.app.routes.frames import router as frames_router
 from backend.app.routes.runs import router as runs_router
 from backend.app.routes.search import router as search_router
 from backend.app.routes.users import router as users_router
@@ -103,7 +105,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(clips_router)
     application.include_router(files_router)
     application.include_router(runs_router)
+    application.include_router(frames_router)
     application.include_router(search_router)
+    application.include_router(evidence_router)
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:
