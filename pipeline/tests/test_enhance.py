@@ -45,17 +45,23 @@ def test_enhance_frame_original_untouched_size_banner_and_cache(
     assert out_path.exists()
     assert out_path.name == "frame_001_enh_x4.jpg"
 
-    # (b) Output size equals crop size * scale.
+    # (b) Output width == crop_w * scale and output height == crop_h * scale + banner_h.
     out_img = cv2.imread(str(out_path))
     assert out_img is not None
-    assert out_img.shape[:2] == (40 * 4, 50 * 4)
+    expected_w = 50 * 4
+    expected_crop_h = 40 * 4
+    banner_h = out_img.shape[0] - expected_crop_h
+    assert out_img.shape[1] == expected_w
+    assert banner_h > 0
+    assert banner_h == enh_mod._banner_height(expected_w, 4)[0]
 
-    # (c) Top banner region is mostly red (R >> G, B) and differs from plain resize.
-    plain = cv2.resize(img[15:55, 20:70], (50 * 4, 40 * 4), interpolation=cv2.INTER_LANCZOS4)
-    top_strip = out_img[:12, :, :]  # BGR
+    # (c) Banner region is mostly red, and region below banner matches plain Lanczos resize.
+    plain = cv2.resize(img[15:55, 20:70], (expected_w, expected_crop_h), interpolation=cv2.INTER_LANCZOS4)
+    top_strip = out_img[:banner_h, :, :]  # BGR
+    below_banner = out_img[banner_h:, :, :]
     assert float(np.mean(top_strip[:, :, 2])) > 150.0  # R channel high
     assert float(np.mean(top_strip[:, :, 0])) < 60.0   # B channel low
-    assert float(np.mean(np.abs(top_strip.astype(np.float32) - plain[:12, :, :].astype(np.float32)))) > 40.0
+    assert float(np.mean(np.abs(below_banner.astype(np.float32) - plain.astype(np.float32)))) < 5.0
 
     # (d) Second call hits cache without calling the upscale function again.
     calls = 0
@@ -69,6 +75,37 @@ def test_enhance_frame_original_untouched_size_banner_and_cache(
     cached = enh_mod.enhance_frame(src, crop_box, method="lanczos", scale=4)
     assert calls == 0
     assert cached == enh
+
+    # (e) Old cache entries (without layout version) are not reused.
+    import hashlib
+    import json
+
+    old_dir = tmp_path / "old_cache_test"
+    old_dir.mkdir()
+    old_out = old_dir / "frame_001_enh_x4.jpg"
+    cv2.imwrite(str(old_out), np.zeros((10, 10, 3), dtype=np.uint8))
+    file_sha = hashlib.sha256(orig_bytes).hexdigest()
+    old_key = hashlib.sha256(f"{file_sha}:20,15,50,40:lanczos:4".encode("utf-8")).hexdigest()
+    (old_dir / "enhance_cache.json").write_text(
+        json.dumps(
+            {
+                old_key: {
+                    "enhanced_path": str(old_out),
+                    "method": "lanczos",
+                    "scale": 4,
+                    "model_version": "lanczos_v1",
+                    "crop_box": [20, 15, 50, 40],
+                    "search_embedding_source": "original",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.undo()
+    fresh = enh_mod.enhance_frame(src, crop_box, method="lanczos", scale=4, out_dir=old_dir)
+    fresh_img = cv2.imread(fresh.enhanced_path)
+    assert fresh_img is not None
+    assert fresh_img.shape[:2] == (expected_crop_h + banner_h, expected_w)
 
 
 def test_enhance_frame_invalid_args_raise_value_error(tmp_path: Path) -> None:

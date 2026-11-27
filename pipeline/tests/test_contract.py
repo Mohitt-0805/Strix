@@ -68,4 +68,5 @@ def test_fake_enhance_writes_separate_file_without_touching_original(tmp_path: P
     assert src.read_bytes() == original_bytes
 
     with Image.open(out) as enhanced_img:
-        assert enhanced_img.size == (120, 160)
+        assert enhanced_img.width == 120
+        assert enhanced_img.height > 160
