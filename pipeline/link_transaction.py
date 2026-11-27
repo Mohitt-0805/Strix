@@ -93,17 +93,28 @@ def _box_overlap_fraction(box: list[float], mask: Any, frame_w: int, frame_h: in
 
 
 def _observation_steps(
-    in_window: list[dict[str, Any]], max_step_sec: float = 1.0, default_dt: float = 0.5
+    in_window: list[dict[str, Any]],
+    max_step_sec: float = 1.0,
+    default_dt: float = 0.5,
+    win_end: float | None = None,
 ) -> list[float]:
-    """Compute per-observation time steps (seconds), capped at max_step_sec."""
+    """Compute per-observation time steps (seconds), capped at max_step_sec and win_end."""
     n = len(in_window)
-    if n <= 1:
-        return [min(max_step_sec, default_dt)] * n
+    if n == 0:
+        return []
+    if n == 1:
+        last_dt = min(max_step_sec, default_dt)
+        if win_end is not None:
+            last_dt = min(last_dt, max(0.0, win_end - float(in_window[0]["t"])))
+        return [last_dt]
     steps = [
         min(max_step_sec, max(0.0, float(in_window[i + 1]["t"]) - float(in_window[i]["t"])))
         for i in range(n - 1)
     ]
-    steps.append(steps[-1])
+    last_dt = steps[-1]
+    if win_end is not None:
+        last_dt = min(last_dt, max(0.0, win_end - float(in_window[-1]["t"])))
+    steps.append(last_dt)
     return steps
 
 
@@ -251,8 +262,12 @@ def link_transaction(
         [[int(round(x * frame_w)), int(round(y * frame_h))] for x, y in zone_polygon_norm],
         dtype=np.int32,
     )
-    t_min = tx_offset_sec - window_sec
-    t_max = tx_offset_sec + window_sec
+    t_min = max(0.0, tx_offset_sec - window_sec)
+    t_max = (
+        min(video_duration_sec, tx_offset_sec + window_sec)
+        if video_duration_sec is not None
+        else (tx_offset_sec + window_sec)
+    )
     window_len = _compute_window_len(tx_offset_sec, window_sec, video_duration_sec)
     max_step = float(cfg["max_step_sec"])
 
@@ -262,14 +277,14 @@ def link_transaction(
         if not in_win:
             continue
 
-        steps = _observation_steps(in_win, max_step_sec=max_step)
+        steps = _observation_steps(in_win, max_step_sec=max_step, win_end=t_max)
         overlaps = [_box_overlap_fraction(o["box"], mask, frame_w, frame_h) for o in in_win]
         in_zones = []
         for o in in_win:
             ax, ay, _ = compute_anchor(o["box"], frame_h, cfg=cfg)
             in_zones.append(cv2.pointPolygonTest(poly_px, (float(ax), float(ay)), False) >= 0)
 
-        dwell_sec = sum(dt for in_z, dt in zip(in_zones, steps) if in_z)
+        dwell_sec = min(window_len, sum(dt for in_z, dt in zip(in_zones, steps) if in_z))
         mean_overlap = sum(overlaps) / len(overlaps)
         anchor_frac = sum(1 for in_z in in_zones if in_z) / len(in_zones)
         nearest_tx = min(abs(float(o["t"]) - tx_offset_sec) for o in in_win)

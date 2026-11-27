@@ -105,3 +105,52 @@ def test_estimate_yaw_from_landmarks_synthetic() -> None:
     assert yaw_left < -20.0
     assert np.isclose(yaw_right, -yaw_left)
 
+
+def test_embed_tight_crop_padded_and_from_landmarks_and_blank() -> None:
+    """Tight crop succeeds via padded retry, embed_from_landmarks matches, blank returns None."""
+    import insightface.data
+    from pipeline.embeddings import cosine, embed_crop, embed_from_landmarks
+    from pipeline.faces import get_face_app
+
+    # Blank image returns None without crashing.
+    blank = np.zeros((100, 100, 3), dtype=np.uint8)
+    vec_blank, meta_blank = embed_crop(blank, info=True)
+    assert vec_blank is None
+    assert meta_blank["attempt"] is None
+
+    try:
+        img = insightface.data.get_image("t1")
+    except Exception:
+        img = None
+    if img is None:
+        pytest.skip("No sample face image available in insightface.data")
+
+    app = get_face_app()
+    faces = app.get(img)
+    if not faces:
+        pytest.skip("No face detected in sample image")
+
+    best = max(faces, key=lambda f: float(f.det_score))
+    full_vec = np.asarray(best.normed_embedding, dtype=np.float32)
+
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = [int(round(v)) for v in best.bbox]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    tight_crop = img[y1:y2, x1:x2]
+
+    crop_vec, meta = embed_crop(tight_crop, info=True)
+    assert crop_vec is not None
+    assert crop_vec.shape == (512,)
+    assert meta["attempt"] == "padded"
+    assert cosine(crop_vec, full_vec) > 0.8
+
+    # embed_from_landmarks on the tight crop with landmarks shifted to crop coordinates.
+    shifted_kps = np.asarray(best.kps, dtype=np.float32) - np.array([[x1, y1]], dtype=np.float32)
+    lm_vec = embed_from_landmarks(tight_crop, shifted_kps)
+    assert lm_vec is not None
+    assert lm_vec.shape == (512,)
+    assert np.isclose(np.linalg.norm(lm_vec), 1.0, atol=1e-3)
+    assert cosine(lm_vec, full_vec) > 0.8
+
+

@@ -81,18 +81,41 @@ Crops `[x, y, w, h]` and resizes by `scale` using Pillow Lanczos, burns `ENHANCE
 
 ## Proposed additions, need team agreement
 
-The following optional fields (with `null` / `None` defaults so `docs/sample_result.json` remains valid unchanged) were added to `pipeline/contract.py` for end-to-end pipeline observability:
+Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, `RELIABILITY_VALUES`). All new fields are optional with defaults so `docs/sample_result.json` continues to validate unchanged.
 
-### `PipelineResult` additions
-- `person_track_id`: `integer | null` (may be `null` when no person is linked in the transaction window)
-- `link_confidence`: `string | null` (e.g. `"High"`, `"Medium"`, `"Low"`)
-- `link_reason`: `string | null` (explanation of how the track was linked or why none was chosen)
-- `selection_reason`: `string | null` (explanation when no frontal face or no face is visible)
-- `timings_ms`: `object | null` (stage-by-stage elapsed time in milliseconds)
+### `PipelineResult` optional/updated fields
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `person_track_id` | `Optional[int]` | `None` | Track ID of the linked person, or `null` if no person/face is found. |
+| `link_confidence` | `Optional[str]` | `None` | Linking confidence (`"High"`, `"Medium"`, `"Low"`). |
+| `link_reason` | `Optional[str]` | `None` | Explanation of track linking or why no track was chosen. |
+| `link_low_margin` | `Optional[bool]` | `False` | `true` when the top two candidate tracks had a narrow score margin. |
+| `selection_reason` | `Optional[str]` | `None` | Explanation when no frontal face or no face is visible. |
+| `timings_ms` | `Optional[dict[str, float]]` | `None` | Stage-by-stage elapsed time in milliseconds. |
 
-### `Frame` additions
-- `frame_id`: `integer | string` (supports `"f_<ms>"` string IDs alongside legacy integer IDs)
-- `match_ready`: `boolean | null` (whether the face meets frontal/clarity thresholds for matching)
-- `rank_reason`: `string | null` (short summary of why the frame ranked in its position)
-- `crop_path`: `string | null` (path to the saved face crop `.jpg`)
+### `Frame` optional/updated fields
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `frame_id` | `int \| str` | required | Supports `"f_<ms>"` string IDs alongside legacy integer IDs. |
+| `match_ready` | `Optional[bool]` | `None` | Whether the face meets frontal/clarity thresholds for matching. |
+| `rank_reason` | `Optional[str]` | `None` | Short summary of why the frame ranked in its position. |
+| `crop_path` | `Optional[str]` | `None` | Path to the saved face crop `.jpg`. |
+
+### Constants (`pipeline/contract.py`)
+- `RELIABILITY_VALUES`: `("High", "Medium", "Low")`
+- `FLAG_VOCAB["current"]`: `("low light", "blur", "partial face", "small face", "profile view", "looking down")`
+- `FLAG_VOCAB["planned"]`: `("cap", "mask", "helmet")`
+
+### Errors (`pipeline/errors.py`)
+| Exception | `code` | When raised |
+| --- | --- | --- |
+| `PipelineError` | `PIPELINE_ERROR` | Base class for all pipeline errors. |
+| `VideoNotFoundError` | `VIDEO_NOT_FOUND` | Input `clip_path` does not exist. |
+| `VideoUnreadableError` | `VIDEO_UNREADABLE` | `ffprobe` / OpenCV cannot read the clip or find a video stream. |
+| `InvalidArgumentError` | `INVALID_ARGUMENT` | `tx_offset_sec` outside `[0, duration]`, `window_sec <= 0`, `sample_fps <= 0`, invalid `tracker`, or invalid `zone_polygon_norm`. |
+| `ZoneNotFoundError` | `ZONE_NOT_FOUND` | Unknown `atm_id` (when `zone_polygon_norm` is `None`). |
+| `ModelLoadError` | `MODEL_LOAD_ERROR` | Required ML model fails to load. |
+
+> Note: "No person in zone" and "no face found" are **not** errors; they return a valid `PipelineResult` with `best_frames=[]` and `person_track_id=None`.
+
 

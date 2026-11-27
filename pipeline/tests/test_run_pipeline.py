@@ -14,11 +14,13 @@ from pipeline.link_transaction import LinkResult
 
 
 def test_lazy_imports_run_pipeline_and_adapter() -> None:
-    """Importing pipeline.run_pipeline and pipeline.adapter must not load heavy libs."""
+    """Importing run_pipeline, adapter, errors, and fake_pipeline must not load heavy libs."""
     code = (
         "import sys; "
         "import pipeline.run_pipeline; "
         "import pipeline.adapter; "
+        "import pipeline.errors; "
+        "import pipeline.fake_pipeline; "
         "loaded = [m for m in ('torch', 'cv2', 'insightface', 'onnxruntime') if m in sys.modules]; "
         "assert not loaded, f'Unexpected heavy imports: {loaded}'"
     )
@@ -91,8 +93,10 @@ def test_run_with_stubbed_stages_valid_and_edge_cases(
         ],
     )
 
+    demo_vid = tmp_path / "demo_clip.mp4"
+    demo_vid.write_bytes(b"")
     res = run_pipeline.run(
-        clip_path="demo_clip.mp4",
+        clip_path=demo_vid,
         tx_offset_sec=10.0,
         window_sec=5.0,
         atm_id="atm_01",
@@ -121,8 +125,10 @@ def test_run_with_stubbed_stages_valid_and_edge_cases(
             ranking=[],
         ),
     )
+    no_person_vid = tmp_path / "no_person.mp4"
+    no_person_vid.write_bytes(b"")
     res_no_person = run_pipeline.run(
-        clip_path="no_person.mp4",
+        clip_path=no_person_vid,
         tx_offset_sec=10.0,
         transaction_time="2026-11-26T12:00:00",
         out_dir=tmp_path,
@@ -150,8 +156,10 @@ def test_run_with_stubbed_stages_valid_and_edge_cases(
             FaceObs(10.0, False, None, None, None, None, None, None, None, None, None, [50.0, 20.0, 200.0, 220.0]),
         ],
     )
+    no_face_vid = tmp_path / "no_face.mp4"
+    no_face_vid.write_bytes(b"")
     res_no_face = run_pipeline.run(
-        clip_path="no_face.mp4",
+        clip_path=no_face_vid,
         tx_offset_sec=10.0,
         transaction_time="2026-11-26T12:00:00",
         out_dir=tmp_path,
@@ -253,8 +261,10 @@ def test_window_margin_exclusion_and_no_folder_collision(
 
     monkeypatch.setattr(faces_mod, "detect_faces_on_track", _fake_faces)
 
+    multi_vid = tmp_path / "multi.mp4"
+    multi_vid.write_bytes(b"")
     res1 = run_pipeline.run(
-        clip_path="multi.mp4",
+        clip_path=multi_vid,
         tx_offset_sec=tx,
         window_sec=win,
         atm_id="atm_01",
@@ -268,7 +278,7 @@ def test_window_margin_exclusion_and_no_folder_collision(
 
     # Second run with different tx -> separate folder, first result.json untouched.
     res2 = run_pipeline.run(
-        clip_path="multi.mp4",
+        clip_path=multi_vid,
         tx_offset_sec=21.1234,
         window_sec=win,
         atm_id="",
@@ -281,4 +291,155 @@ def test_window_margin_exclusion_and_no_folder_collision(
     assert (dir2 / "result.json").exists()
     assert res1.clip_id == "multi"
     assert res2.clip_id == "multi"
+
+
+def test_errors_parity_between_real_and_fake(tmp_path: Path) -> None:
+    """run() and fake_pipeline.run() raise the same typed errors for bad arguments."""
+    from pipeline import fake_pipeline, run_pipeline
+    from pipeline.errors import (
+        InvalidArgumentError,
+        VideoNotFoundError,
+        VideoUnreadableError,
+        ZoneNotFoundError,
+    )
+
+    missing = tmp_path / "does_not_exist.mp4"
+    with pytest.raises(VideoNotFoundError):
+        run_pipeline.run(missing, tx_offset_sec=5.0)
+
+    bad_vid = tmp_path / "corrupt.mp4"
+    bad_vid.write_bytes(b"not a real mp4")
+    with pytest.raises(VideoUnreadableError):
+        run_pipeline.run(bad_vid, tx_offset_sec=5.0)
+
+    for fn in (run_pipeline.run, fake_pipeline.run):
+        with pytest.raises(InvalidArgumentError):
+            fn(bad_vid, tx_offset_sec=5.0, window_sec=0.0)
+        with pytest.raises(InvalidArgumentError):
+            fn(bad_vid, tx_offset_sec=5.0, sample_fps=-1.0)
+        with pytest.raises(InvalidArgumentError):
+            fn(bad_vid, tx_offset_sec=-1.0)
+        with pytest.raises(InvalidArgumentError):
+            fn(bad_vid, tx_offset_sec=5.0, zone_polygon_norm=[[0.1, 0.1], [0.9, 0.9]])
+        with pytest.raises(InvalidArgumentError):
+            fn(bad_vid, tx_offset_sec=5.0, zone_polygon_norm=[[0.1, 0.1], [1.5, 0.1], [0.5, 0.9]])
+        with pytest.raises(ZoneNotFoundError):
+            fn(bad_vid, tx_offset_sec=5.0, atm_id="unknown_atm_999")
+
+
+def test_progress_callback_zone_priority_and_low_margin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """progress_cb is monotonic & resilient; zone_polygon_norm overrides atm_id; link_low_margin is set."""
+    import pipeline.detect_track as dt_mod
+    import pipeline.faces as faces_mod
+    import pipeline.frames as frames_mod
+    import pipeline.link_transaction as link_mod
+    from pipeline import fake_pipeline, run_pipeline
+
+    vid = tmp_path / "prog.mp4"
+    vid.write_bytes(b"")
+    frame = np.full((240, 320, 3), 130, dtype=np.uint8)
+    samples = [(10.0 + i * 0.5, frame) for i in range(12)]
+
+    monkeypatch.setattr(frames_mod, "iter_sampled_frames", lambda *a, **kw: iter(samples))
+    monkeypatch.setattr(frames_mod, "video_info", lambda *a, **kw: {"duration_sec": 30.0})
+    monkeypatch.setattr(dt_mod, "detect_persons", lambda frames: [[{"box": [50, 20, 200, 220], "score": 0.9}] for _ in frames])
+    monkeypatch.setattr(
+        run_pipeline,
+        "_run_tracking",
+        lambda *a, **kw: [
+            Track(
+                track_id=2,
+                observations=[{"t": t, "box": [50.0, 20.0, 200.0, 220.0], "score": 0.9} for t, _ in samples],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        link_mod,
+        "link_transaction",
+        lambda *a, **kw: LinkResult(
+            chosen_track_id=2,
+            confidence="Medium",
+            reason="tight margin",
+            low_margin=True,
+            track_count_in_window=2,
+            ranking=[],
+        ),
+    )
+    emb = np.ones(512, dtype=np.float32) / np.sqrt(512.0)
+    monkeypatch.setattr(
+        faces_mod,
+        "detect_faces_on_track",
+        lambda tr, fbt: [
+            FaceObs(float(o["t"]), True, [80.0, 40.0, 160.0, 120.0], 0.9, None, 5.0, -5.0, 0.0, 0.0, 80.0, emb, [50.0, 20.0, 200.0, 220.0])
+            for o in tr.observations
+        ],
+    )
+
+    events: list[dict] = []
+    # zone_polygon_norm takes priority over unknown atm_id.
+    res = run_pipeline.run(
+        clip_path=vid,
+        tx_offset_sec=12.0,
+        window_sec=5.0,
+        atm_id="nonexistent_atm",
+        zone_polygon_norm=[[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+        transaction_time="2026-11-26T12:00:00",
+        out_dir=tmp_path,
+        progress_cb=events.append,
+    )
+    assert res.link_low_margin is True
+    assert events
+    fractions = [e["fraction"] for e in events]
+    assert fractions == sorted(fractions)
+    assert fractions[-1] == 1.0
+    stages = {e["stage"] for e in events}
+    assert {"frames", "detect_persons", "track", "link", "faces", "quality", "select", "save", "done"}.issubset(stages)
+
+    # Callback exception must be ignored.
+    def _boom(_ev: dict) -> None:
+        raise RuntimeError("callback failure")
+
+    run_pipeline.run(
+        clip_path=vid,
+        tx_offset_sec=12.0,
+        window_sec=5.0,
+        zone_polygon_norm=[[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+        transaction_time="2026-11-26T12:00:00",
+        out_dir=tmp_path,
+        progress_cb=_boom,
+    )
+
+    # fake_pipeline.run also emits progress events.
+    fake_events: list[dict] = []
+    fake_res = fake_pipeline.run(
+        clip_path=vid,
+        tx_offset_sec=12.0,
+        zone_polygon_norm=[[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]],
+        progress_cb=fake_events.append,
+    )
+    assert fake_events
+    assert fake_events[-1]["stage"] == "done"
+    assert fake_res.link_low_margin is False
+
+
+def test_model_dir_resolution_and_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """_resolve_insightface_root uses MODEL_DIR when populated, else falls back."""
+    from pipeline.faces import _resolve_insightface_root
+
+    empty_dir = tmp_path / "empty_models"
+    empty_dir.mkdir()
+    monkeypatch.setenv("MODEL_DIR", str(empty_dir))
+    resolved = _resolve_insightface_root()
+    # Falls back to ~/.insightface if buffalo_l is cached there, else empty_dir.
+    assert resolved in {"~/.insightface", str(empty_dir)}
+
+    populated = tmp_path / "populated_models"
+    (populated / "models" / "buffalo_l").mkdir(parents=True)
+    (populated / "models" / "buffalo_l" / "det_10g.onnx").write_bytes(b"stub")
+    monkeypatch.setenv("MODEL_DIR", str(populated))
+    assert _resolve_insightface_root() == str(populated)
+
 

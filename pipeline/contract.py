@@ -6,6 +6,25 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+RELIABILITY_VALUES: tuple[str, ...] = ("High", "Medium", "Low")
+
+FLAG_VOCAB: dict[str, tuple[str, ...]] = {
+    "current": (
+        "low light",
+        "blur",
+        "partial face",
+        "small face",
+        "profile view",
+        "looking down",
+    ),
+    "planned": (
+        "cap",
+        "mask",
+        "helmet",
+    ),
+}
+
+
 class Metrics(BaseModel):
     """Per-frame face quality metrics."""
 
@@ -56,6 +75,7 @@ class PipelineResult(BaseModel):
     # Proposed additions (optional with defaults for backward compatibility).
     link_confidence: Optional[str] = None
     link_reason: Optional[str] = None
+    link_low_margin: Optional[bool] = False
     selection_reason: Optional[str] = None
     timings_ms: Optional[dict[str, float]] = None
 
