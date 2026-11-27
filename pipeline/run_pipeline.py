@@ -330,9 +330,16 @@ def run(
     timings_ms["faces"] = round((time.perf_counter() - t0) * 1000.0, 2)
 
     # 6. Quality scoring + flags + reliability.
+    other_boxes_by_time: dict[float, list[list[float]]] = {}
+    for tr in tracks:
+        if tr.track_id == chosen_track.track_id:
+            continue
+        for o in tr.observations:
+            other_boxes_by_time.setdefault(float(o["t"]), []).append(list(o["box"]))
+
     _emit_progress(progress_cb, "quality", 0.88, "Scoring face quality")
     t0 = time.perf_counter()
-    scored = score_track_faces(face_obs, frames_by_time)
+    scored = score_track_faces(face_obs, frames_by_time, other_person_boxes_by_time=other_boxes_by_time)
     timings_ms["quality"] = round((time.perf_counter() - t0) * 1000.0, 2)
 
     # 7. Select best frames.

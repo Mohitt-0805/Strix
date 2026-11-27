@@ -217,6 +217,7 @@ def score_track_faces(
     face_obs_list: list[Any],
     frames_by_time: dict[float, Any],
     cfg: dict[str, Any] | None = None,
+    other_person_boxes_by_time: dict[float, list[list[float]]] | None = None,
 ) -> list[ScoredFace]:
     """Score every FaceObs in a track against its corresponding frame."""
     config = cfg or load_quality_config()
@@ -242,7 +243,8 @@ def score_track_faces(
             continue
 
         metrics, q_score = score_face(obs, frame, config)
-        flags = compute_flags(obs, frame, metrics, config)
+        other_boxes = (other_person_boxes_by_time or {}).get(t)
+        flags = compute_flags(obs, frame, metrics, config, other_person_boxes=other_boxes)
         ready, reasons = match_ready(obs, config)
         rel = compute_reliability(q_score, ready, flags, config, face_width_px=obs.face_width_px)
         scored.append(
