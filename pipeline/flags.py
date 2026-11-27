@@ -7,13 +7,21 @@ modules can import pipeline.flags without them.
 from typing import Any
 
 
-def detect_occluders(face_crop: Any) -> list[str]:
-    """Stub for semantic occluder detection.
+def detect_occluders(face_or_crop: Any, frame_bgr: Any | None = None) -> list[str]:
+    """Run CLIP zero-shot occluder detection on a head crop or (FaceObs, frame_bgr)."""
+    from pipeline.occluders import detect_occluders_batch, head_crop
 
-    Cap, mask, and helmet flags will be added later using CLIP zero-shot.
-    """
-    _ = face_crop
-    return []
+    if frame_bgr is not None and getattr(face_or_crop, "face_box", None) is not None:
+        crop = head_crop(frame_bgr, face_or_crop.face_box)
+    elif frame_bgr is None:
+        crop = face_or_crop
+    else:
+        return []
+
+    if crop is None or getattr(crop, "size", 0) == 0:
+        return []
+    hits = detect_occluders_batch([crop])[0]
+    return [h["flag"] for h in hits]
 
 
 def is_partial_face(
@@ -71,6 +79,7 @@ def compute_flags(
     metrics: Any,
     cfg: dict[str, Any],
     other_person_boxes: list[list[float]] | None = None,
+    occluder_flags: list[str] | None = None,
 ) -> list[str]:
     """Compute descriptive quality/pose flags from pixels and pose only."""
     if not getattr(face_obs, "face_found", False) or face_obs.face_box is None:
@@ -91,13 +100,15 @@ def compute_flags(
     cy2 = min(h, int(round(fy2)))
 
     if cx2 > cx1 and cy2 > cy1:
-        crop = frame_bgr[cy1:cy2, cx1:cx2]
         lum_region = _luminance_region(face_obs, frame_bgr, (cx1, cy1, cx2, cy2))
         gray = cv2.cvtColor(lum_region, cv2.COLOR_BGR2GRAY)
         mean_lum = float(np.mean(gray))
         if mean_lum < float(flag_cfg["low_light_mean_thresh"]):
             flags.append("low light")
-        flags.extend(detect_occluders(crop))
+        if occluder_flags is not None:
+            flags.extend(occluder_flags)
+        else:
+            flags.extend(detect_occluders(face_obs, frame_bgr))
 
     if float(metrics.sharpness) < float(flag_cfg["blur_sharpness_thresh"]):
         flags.append("blur")

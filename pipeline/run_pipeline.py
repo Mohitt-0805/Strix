@@ -106,6 +106,7 @@ def _save_picked_outputs(
                 rank_reason=item.rank_reason,
                 crop_path=str(crop_path) if crop_path.exists() else None,
                 face_box=face_box_xywh,
+                flag_scores=item.flag_scores,
             )
         )
 
@@ -350,8 +351,16 @@ def run(
 
     _emit_progress(progress_cb, "quality", 0.88, "Scoring face quality")
     t0 = time.perf_counter()
-    scored = score_track_faces(face_obs, frames_by_time, other_person_boxes_by_time=other_boxes_by_time)
-    timings_ms["quality"] = round((time.perf_counter() - t0) * 1000.0, 2)
+    occ_timings: dict[str, float] = {}
+    scored = score_track_faces(
+        face_obs,
+        frames_by_time,
+        other_person_boxes_by_time=other_boxes_by_time,
+        timings_out=occ_timings,
+    )
+    occ_ms = round(occ_timings.get("occluders", 0.0), 2)
+    timings_ms["occluders"] = occ_ms
+    timings_ms["quality"] = round(max(0.0, (time.perf_counter() - t0) * 1000.0 - occ_ms), 2)
 
     # 7. Select best frames.
     _emit_progress(progress_cb, "select", 0.93, "Selecting best frames")

@@ -1,0 +1,43 @@
+{
+  "_comment": "Starting CLIP zero-shot occluder prompts and thresholds (every flag is a MODEL ESTIMATE, to be tuned on real clips).",
+  "enabled": true,
+  "batch_size": 16,
+  "model_name": "ViT-B-32",
+  "pretrained": "openai",
+  "thresholds": {
+    "cap": 0.80,
+    "mask": 0.80,
+    "helmet": 0.85
+  },
+  "prompts": {
+    "cap": {
+      "present": [
+        "a photo of a person wearing a baseball cap",
+        "a photo of a person wearing a hat"
+      ],
+      "absent": [
+        "a photo of a person with bare head and visible hair",
+        "a photo of a person's head without any hat"
+      ]
+    },
+    "mask": {
+      "present": [
+        "a photo of a person wearing a face mask covering nose and mouth",
+        "a photo of a person with a cloth covering the lower face"
+      ],
+      "absent": [
+        "a photo of a person's uncovered face",
+        "a photo of a person with a visible nose and mouth"
+      ]
+    },
+    "helmet": {
+      "present": [
+        "a photo of a person wearing a helmet"
+      ],
+      "absent": [
+        "a photo of a person without a helmet",
+        "a photo of a person with bare head"
+      ]
+    }
+  }
+}
