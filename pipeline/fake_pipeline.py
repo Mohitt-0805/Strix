@@ -23,8 +23,10 @@ from pipeline.contract import (
     SearchResult,
     load_result,
 )
+from pipeline.compare import ENHANCEMENT_WARNING, determine_basis, load_compare_config
 from pipeline.errors import InvalidArgumentError, ZoneNotFoundError, validate_zone_polygon
 from pipeline.link_transaction import load_zone
+from pipeline.sampling import resolve_window_sample_fps
 
 
 SAMPLE_RESULT_PATH = Path(__file__).resolve().parent.parent / "docs" / "sample_result.json"
@@ -72,14 +74,34 @@ def run(
         except KeyError as exc:
             raise ZoneNotFoundError(str(exc)) from exc
 
+    requested_fps = float(sample_fps)
+    effective_fps, _needed_frames, fps_warning = resolve_window_sample_fps(
+        float(window_sec),
+        requested_fps,
+    )
+    warnings: list[str] = []
+
     _emit(progress_cb, "frames", 0.1, "Sampling frames (fake)")
+    if fps_warning is not None:
+        warnings.append(fps_warning)
+        _emit(progress_cb, "frames", 0.12, fps_warning)
     _emit(progress_cb, "detect_persons", 0.4, "Detecting persons (fake)")
     _emit(progress_cb, "faces", 0.7, "Detecting faces (fake)")
     _emit(progress_cb, "save", 0.95, "Saving results (fake)")
 
     result = load_result(SAMPLE_RESULT_PATH)
     clip_id = Path(clip_path).stem or result.clip_id
-    updates: dict[str, object] = {"clip_id": clip_id, "link_low_margin": False}
+    cov_start = round(max(0.0, float(tx_offset_sec) - float(window_sec)), 3)
+    cov_end = round(float(tx_offset_sec) + float(window_sec), 3)
+    updates: dict[str, object] = {
+        "clip_id": clip_id,
+        "link_low_margin": False,
+        "requested_sample_fps": requested_fps,
+        "effective_sample_fps": effective_fps,
+        "warnings": warnings,
+        "coverage_start_sec": cov_start,
+        "coverage_end_sec": cov_end,
+    }
     if transaction_time is not None:
         updates["transaction_time"] = transaction_time
 
@@ -167,6 +189,7 @@ def index_clip(
     atm_id: str | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     max_seconds: float = 600.0,
+    allow_truncate: bool = False,
 ) -> IndexResult:
     """Fake index_clip returning 3 seeded tracks and writing valid index.npz/index.json."""
     _ = (tracker, min_face_px)
@@ -193,10 +216,20 @@ def index_clip(
     actual_end = float(start_sec) + 30.0 if end_sec is None else float(end_sec)
     if actual_end <= float(start_sec):
         raise InvalidArgumentError(f"end_sec ({actual_end}) must be > start_sec ({start_sec})")
+    warnings: list[str] = []
     if (actual_end - float(start_sec)) > float(max_seconds):
-        raise InvalidArgumentError(f"Requested range exceeds max_seconds={max_seconds}")
+        if not allow_truncate:
+            raise InvalidArgumentError(f"Requested range exceeds max_seconds={max_seconds}")
+        orig_end = actual_end
+        actual_end = float(start_sec) + float(max_seconds)
+        warnings.append(
+            f"Requested range [{float(start_sec):.1f}, {orig_end:.1f}]s exceeded max_seconds={float(max_seconds):g}; "
+            f"truncated to end_sec={actual_end:.1f}s."
+        )
 
     _emit(progress_cb, "frames", 0.1, "Streaming frames (fake)")
+    for w_msg in warnings:
+        _emit(progress_cb, "frames", 0.12, w_msg)
     _emit(progress_cb, "detect_persons", 0.4, "Detecting persons (fake)")
     _emit(progress_cb, "faces", 0.7, "Extracting faces (fake)")
 
@@ -284,6 +317,7 @@ def index_clip(
         zf.writestr("embeddings.npy", emb_npy)
         zf.writestr("metadata_json.npy", meta_npy)
 
+    req_fps = float(sample_fps)
     res = IndexResult(
         clip_id=clip_id,
         start_sec=round(float(start_sec), 3),
@@ -293,6 +327,11 @@ def index_clip(
         index_json_path=str(json_path),
         total_embeddings=len(all_vecs),
         timings_ms={"frames": 1.0, "detect_persons": 1.0, "track": 1.0, "faces": 1.0, "quality": 1.0, "save": 1.0},
+        requested_sample_fps=req_fps,
+        effective_sample_fps=req_fps,
+        warnings=warnings,
+        coverage_start_sec=round(float(start_sec), 3),
+        coverage_end_sec=round(actual_end, 3),
     )
     json_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
     _emit(progress_cb, "done", 1.0, "Done (fake)")
@@ -343,5 +382,62 @@ def search_with_enhancement(
         reason=None,
         matches=matches,
     )
+
+
+def secondary_scores(
+    enhanced_crop_path: str | Path | None,
+    rows: Any,
+    original_scores: Any,
+    warn: float | None = None,
+) -> dict[str, Any]:
+    """Fake stdlib-only secondary_scores() returning seeded similarities matching real shape."""
+    warn_thresh = float(load_compare_config()["disagreement_warn"]) if warn is None else float(warn)
+
+    n_rows = len(rows)
+    if n_rows > 0 and len(rows[0]) != 512:
+        raise ValueError(f"rows must have width 512, got {len(rows[0])}")
+
+    orig_list = [float(s) for s in original_scores]
+    if len(orig_list) != n_rows:
+        raise ValueError(f"original_scores length ({len(orig_list)}) must match rows count ({n_rows})")
+
+    if enhanced_crop_path is None:
+        return {
+            "rows": [
+                {"similarity_secondary": None, "delta": None, "warning": None}
+                for _ in orig_list
+            ],
+            "basis": "original",
+            "reliability_note": None,
+            "top_level_warning": None,
+            "enhanced_embedding_found": False,
+            "note": "Could not extract face embedding from enhanced crop",
+        }
+
+    rng = random.Random(11)
+    row_results: list[dict[str, Any]] = []
+    any_warning = False
+    for orig_s in orig_list:
+        sec_f = max(-1.0, min(1.0, round(orig_s - 0.04 + rng.uniform(-0.02, 0.02), 4)))
+        delta = round(abs(orig_s - sec_f), 4)
+        row_warn = ENHANCEMENT_WARNING if delta > warn_thresh else None
+        if row_warn is not None:
+            any_warning = True
+        row_results.append(
+            {
+                "similarity_secondary": sec_f,
+                "delta": delta,
+                "warning": row_warn,
+            }
+        )
+
+    return {
+        "rows": row_results,
+        "basis": "original",
+        "reliability_note": None,
+        "top_level_warning": ENHANCEMENT_WARNING if any_warning else None,
+        "enhanced_embedding_found": True,
+        "note": None,
+    }
 
 

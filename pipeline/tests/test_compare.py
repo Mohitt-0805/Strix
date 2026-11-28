@@ -12,10 +12,11 @@ from pipeline.contract import SearchResult
 
 
 def test_lazy_imports_compare() -> None:
-    """Importing pipeline.compare and pipeline.adapter must not load heavy libs."""
+    """Importing pipeline.compare, fake_pipeline, and adapter must not load heavy libs."""
     code = (
         "import sys; "
         "import pipeline.compare; "
+        "import pipeline.fake_pipeline; "
         "import pipeline.adapter; "
         "loaded = [m for m in ('torch', 'cv2', 'insightface', 'onnxruntime') if m in sys.modules]; "
         "assert not loaded, f'Unexpected heavy imports: {loaded}'"
@@ -24,15 +25,17 @@ def test_lazy_imports_compare() -> None:
     assert res.returncode == 0, res.stderr or res.stdout
 
 
-def test_adapter_get_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_search() switches between fake_pipeline and compare."""
+def test_adapter_get_search_and_secondary_scores(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_search() and get_secondary_scores() switch between fake_pipeline and compare."""
     from pipeline import adapter, compare, fake_pipeline
 
     monkeypatch.setenv("USE_FAKE_PIPELINE", "1")
     assert adapter.get_search() is fake_pipeline.search_with_enhancement
+    assert adapter.get_secondary_scores() is fake_pipeline.secondary_scores
 
     monkeypatch.setenv("USE_FAKE_PIPELINE", "0")
     assert adapter.get_search() is compare.search_with_enhancement
+    assert adapter.get_secondary_scores() is compare.secondary_scores
 
 
 def _write_dummy_index(idx_dir: Path) -> None:
@@ -199,5 +202,100 @@ def test_identity_grouping_and_na_handling() -> None:
     assert loo_single["insufficient_same_rows"] is True
     assert loo_single["top1_correct"] is None
     assert loo_single["best_same"] is None
+
+
+def test_secondary_scores_boundary_no_embedding_and_shapes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """secondary_scores warns at delta 0.16 not 0.14, handles missing embedding, and checks shapes."""
+    from pipeline import compare
+
+    row0 = np.zeros(512, dtype=np.float32)
+    row0[0] = 1.0
+    row1 = np.zeros(512, dtype=np.float32)
+    row1[1] = 1.0
+    rows = np.vstack([row0, row1]).astype(np.float32)
+
+    enh_vec = np.zeros(512, dtype=np.float32)
+    enh_vec[0] = 0.84
+    enh_vec[2] = float(np.sqrt(1.0 - 0.84**2))
+
+    # Original scores: [1.0, 0.14] vs enhanced cosines: [0.84, 0.0] -> deltas [0.16 (>0.15), 0.14 (<=0.15)].
+    monkeypatch.setattr(compare, "_embed_image_path", lambda _p: enh_vec)
+    res = compare.secondary_scores("enh.jpg", rows, [1.0, 0.14])
+
+    assert res["basis"] == "original"
+    assert res["reliability_note"] is None
+    assert res["enhanced_embedding_found"] is True
+    assert res["note"] is None
+    assert res["top_level_warning"] == compare.ENHANCEMENT_WARNING
+    assert len(res["rows"]) == 2
+    assert res["rows"][0]["similarity_secondary"] == pytest.approx(0.84, abs=1e-4)
+    assert res["rows"][0]["delta"] == pytest.approx(0.16, abs=1e-4)
+    assert res["rows"][0]["warning"] == compare.ENHANCEMENT_WARNING
+    assert res["rows"][1]["similarity_secondary"] == pytest.approx(0.0, abs=1e-4)
+    assert res["rows"][1]["delta"] == pytest.approx(0.14, abs=1e-4)
+    assert res["rows"][1]["warning"] is None
+
+    # All <= 0.14 -> no top-level warning.
+    res_quiet = compare.secondary_scores("enh.jpg", rows, [0.98, 0.14])
+    assert res_quiet["top_level_warning"] is None
+    assert all(r["warning"] is None for r in res_quiet["rows"])
+
+    # Missing enhanced embedding -> None similarities and descriptive note.
+    monkeypatch.setattr(compare, "_embed_image_path", lambda _p: None)
+    res_missing = compare.secondary_scores("missing.jpg", rows, [1.0, 0.14])
+    assert res_missing["enhanced_embedding_found"] is False
+    assert res_missing["note"] is not None and len(res_missing["note"]) > 0
+    assert res_missing["top_level_warning"] is None
+    assert all(r["similarity_secondary"] is None and r["delta"] is None and r["warning"] is None for r in res_missing["rows"])
+
+    # Empty (0, 512) rows accepted; bad width or mismatched lengths raise ValueError.
+    empty_res = compare.secondary_scores("missing.jpg", np.zeros((0, 512), dtype=np.float32), [])
+    assert empty_res["rows"] == []
+    with pytest.raises(ValueError):
+        compare.secondary_scores("missing.jpg", np.zeros((2, 128), dtype=np.float32), [0.5, 0.5])
+    with pytest.raises(ValueError):
+        compare.secondary_scores("missing.jpg", rows, [0.5])
+
+
+def test_determine_basis_rules_and_fake_real_parity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """determine_basis covers all 3 rules and fake/real secondary_scores share exact output shape."""
+    from pipeline import compare, fake_pipeline
+
+    v = np.ones(512, dtype=np.float32) / np.sqrt(512.0)
+
+    b_orig = compare.determine_basis(v, v)
+    assert b_orig["basis"] == "original"
+    assert b_orig["reliability_note"] is None
+
+    b_enh = compare.determine_basis(None, v)
+    assert b_enh["basis"] == "enhanced"
+    assert b_enh["reliability_note"] == "based on ENHANCED image, low reliability"
+
+    b_none = compare.determine_basis(None, None)
+    assert b_none["basis"] == "none"
+    assert b_none["reason"] is not None and len(b_none["reason"]) > 0
+
+    assert fake_pipeline.determine_basis(None, v) == b_enh
+    assert fake_pipeline.determine_basis(None, None) == b_none
+
+    rows = np.eye(3, 512, dtype=np.float32)
+    orig_scores = [0.85, 0.60, 0.25]
+    monkeypatch.setattr(compare, "_embed_image_path", lambda _p: rows[0])
+
+    real_out = compare.secondary_scores("enh.jpg", rows, orig_scores)
+    fake_out = fake_pipeline.secondary_scores("enh.jpg", rows, orig_scores)
+    assert set(fake_out.keys()) == set(real_out.keys())
+    assert len(fake_out["rows"]) == len(real_out["rows"]) == 3
+    assert set(fake_out["rows"][0].keys()) == set(real_out["rows"][0].keys()) == {
+        "similarity_secondary",
+        "delta",
+        "warning",
+    }
+    assert fake_pipeline.ENHANCEMENT_WARNING == compare.ENHANCEMENT_WARNING
+
+    fake_none = fake_pipeline.secondary_scores(None, rows, orig_scores)
+    assert fake_none["enhanced_embedding_found"] is False
+    assert fake_none["note"] is not None
+    assert all(r["similarity_secondary"] is None for r in fake_none["rows"])
 
 

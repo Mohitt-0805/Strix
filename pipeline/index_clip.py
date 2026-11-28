@@ -16,6 +16,7 @@ from pipeline.errors import (
     ZoneNotFoundError,
     validate_zone_polygon,
 )
+from pipeline.sampling import check_coverage_end
 
 
 _RELIABILITY_RANK: dict[str, int] = {"High": 2, "Medium": 1, "Low": 0}
@@ -87,6 +88,7 @@ def index_clip(
     atm_id: str | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     max_seconds: float = 600.0,
+    allow_truncate: bool = False,
 ) -> IndexResult:
     """Stream a clip range in chunks, track persons, and index top face embeddings."""
     import cv2
@@ -133,9 +135,17 @@ def index_clip(
     actual_end = duration_sec if end_sec is None else min(float(end_sec), duration_sec if duration_sec > 0 else float(end_sec))
     if actual_end <= float(start_sec):
         raise InvalidArgumentError(f"end_sec ({actual_end}) must be > start_sec ({start_sec})")
+    warnings: list[str] = []
     if (actual_end - float(start_sec)) > float(max_seconds):
-        raise InvalidArgumentError(
-            f"Requested range {actual_end - float(start_sec):.1f}s exceeds max_seconds={max_seconds}"
+        if not allow_truncate:
+            raise InvalidArgumentError(
+                f"Requested range {actual_end - float(start_sec):.1f}s exceeds max_seconds={max_seconds}"
+            )
+        orig_end = actual_end
+        actual_end = float(start_sec) + float(max_seconds)
+        warnings.append(
+            f"Requested range [{float(start_sec):.1f}, {orig_end:.1f}]s exceeded max_seconds={float(max_seconds):g}; "
+            f"truncated to end_sec={actual_end:.1f}s."
         )
 
     clip_id = video_path.stem
@@ -147,9 +157,13 @@ def index_clip(
     timings_ms: dict[str, float] = {"frames": 0.0, "detect_persons": 0.0, "track": 0.0, "faces": 0.0, "occluders": 0.0, "quality": 0.0, "save": 0.0}
 
     _emit_progress(progress_cb, "frames", 0.05, f"Streaming frames [{start_sec:.1f}, {actual_end:.1f}]")
+    for w_msg in warnings:
+        _emit_progress(progress_cb, "frames", 0.06, w_msg)
     trk = _build_tracker(tracker, float(sample_fps))
     frames_by_time: dict[float, Any] = {}
     frame_shape: tuple[int, int] | None = None
+    first_sampled_t: float | None = None
+    last_sampled_t: float | None = None
 
     chunk_size = 100
     chunk: list[tuple[float, Any]] = []
@@ -188,6 +202,10 @@ def index_clip(
             raise VideoUnreadableError(f"Failed reading frames from {video_path}: {exc}") from exc
         timings_ms["frames"] += (time.perf_counter() - t_fr) * 1000.0
 
+        ts_val = float(item[0])
+        if first_sampled_t is None:
+            first_sampled_t = ts_val
+        last_sampled_t = ts_val
         chunk.append(item)
         if len(chunk) >= chunk_size:
             _process_chunk(chunk)
@@ -201,6 +219,16 @@ def index_clip(
 
     if chunk:
         _process_chunk(chunk)
+
+    if last_sampled_t is not None:
+        cov_warn = check_coverage_end(last_sampled_t, actual_end, float(sample_fps))
+        if cov_warn is not None:
+            warnings.append(cov_warn)
+            _emit_progress(progress_cb, "frames", 0.51, cov_warn)
+    else:
+        empty_warn = f"No frames sampled in [{float(start_sec):.2f}, {actual_end:.2f}]s."
+        warnings.append(empty_warn)
+        _emit_progress(progress_cb, "frames", 0.51, empty_warn)
 
     tracks = trk.finish()
     _emit_progress(progress_cb, "faces", 0.55, f"Extracting faces for {len(tracks)} tracks")
@@ -387,6 +415,9 @@ def index_clip(
     timings_ms["save"] += (time.perf_counter() - t_save_idx) * 1000.0
 
     rounded_timings = {k: round(v, 2) for k, v in timings_ms.items()}
+    req_fps = float(sample_fps)
+    cov_start = round(first_sampled_t, 3) if first_sampled_t is not None else None
+    cov_end = round(last_sampled_t, 3) if last_sampled_t is not None else None
     result = IndexResult(
         clip_id=clip_id,
         start_sec=round(float(start_sec), 3),
@@ -396,6 +427,11 @@ def index_clip(
         index_json_path=str(json_path),
         total_embeddings=len(all_embeddings),
         timings_ms=rounded_timings,
+        requested_sample_fps=req_fps,
+        effective_sample_fps=req_fps,
+        warnings=warnings,
+        coverage_start_sec=cov_start,
+        coverage_end_sec=cov_end,
     )
     json_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
     _emit_progress(progress_cb, "done", 1.0, "Done")
@@ -413,6 +449,7 @@ def main() -> int:
     parser.add_argument("--min-face-px", type=int, default=40)
     parser.add_argument("--atm-id", type=str, default=None)
     parser.add_argument("--out-dir", type=Path, default=Path("data/outputs"))
+    parser.add_argument("--allow-truncate", action="store_true", help="Truncate range to max_seconds with a warning instead of failing")
     args = parser.parse_args()
 
     res = index_clip(
@@ -425,8 +462,11 @@ def main() -> int:
         min_face_px=args.min_face_px,
         atm_id=args.atm_id,
         out_dir=args.out_dir,
+        allow_truncate=args.allow_truncate,
     )
     print(f"Indexed {res.clip_id} [{res.start_sec}, {res.end_sec}]s | Tracks: {len(res.tracks)}")
+    for w in res.warnings:
+        print(f"WARNING: {w}")
     for tr in res.tracks:
         print(
             f"  track={tr.track_id} [{tr.first_t:.2f}..{tr.last_t:.2f}] | "

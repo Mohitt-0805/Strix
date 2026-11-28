@@ -157,6 +157,7 @@ def get_index_clip() -> Callable[..., object]:
         atm_id: str | None = None,
         progress_cb: Callable[[dict[str, Any]], None] | None = None,
         max_seconds: float = 600.0,
+        allow_truncate: bool = False,
     ) -> object:
         manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
         clip_name = Path(clip_path).name
@@ -206,6 +207,7 @@ def get_index_clip() -> Callable[..., object]:
             atm_id=atm_id,
             progress_cb=progress_cb,
             max_seconds=max_seconds,
+            allow_truncate=allow_truncate,
         )
 
     return _cached_or_real_index
@@ -221,3 +223,15 @@ def get_search() -> Callable[..., object]:
     from pipeline.compare import search_with_enhancement
 
     return search_with_enhancement
+
+
+def get_secondary_scores() -> Callable[..., dict[str, Any]]:
+    """Return fake_pipeline.secondary_scores if USE_FAKE_PIPELINE is truthy, else compare.secondary_scores."""
+    if _use_fake():
+        from pipeline.fake_pipeline import secondary_scores
+
+        return secondary_scores
+
+    from pipeline.compare import secondary_scores
+
+    return secondary_scores

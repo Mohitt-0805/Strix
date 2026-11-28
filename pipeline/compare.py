@@ -12,7 +12,7 @@ from pipeline.contract import SearchMatch, SearchResult
 
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "config" / "compare.json"
-_DISAGREEMENT_MSG = "Enhancement changed the result. Treat with caution."
+ENHANCEMENT_WARNING = "Enhancement changed the result. Treat with caution."
 _ENHANCED_BASIS_NOTE = "based on ENHANCED image, low reliability"
 _BANNER_MSG = "Possible leads only. A person must verify."
 
@@ -44,6 +44,101 @@ def _embed_image_path(path: str | Path | None) -> Any | None:
     return embed_crop(img)
 
 
+def determine_basis(
+    original_embedding: Any | None,
+    enhanced_embedding: Any | None,
+) -> dict[str, Any]:
+    """Choose search basis ('original', 'enhanced', or 'none') and reliability metadata."""
+    if original_embedding is not None:
+        return {
+            "basis": "original",
+            "reliability_note": None,
+            "reason": None,
+            "banner": _BANNER_MSG,
+        }
+    if enhanced_embedding is not None:
+        return {
+            "basis": "enhanced",
+            "reliability_note": _ENHANCED_BASIS_NOTE,
+            "reason": None,
+            "banner": _BANNER_MSG,
+        }
+    return {
+        "basis": "none",
+        "reliability_note": None,
+        "reason": "Could not extract face embedding from original or enhanced crop",
+        "banner": _BANNER_MSG,
+    }
+
+
+def secondary_scores(
+    enhanced_crop_path: str | Path | None,
+    rows: Any,
+    original_scores: Any,
+    warn: float | None = None,
+) -> dict[str, Any]:
+    """Compute enhanced-crop similarities and disagreement warnings against candidate rows."""
+    import numpy as np
+
+    warn_thresh = float(load_compare_config()["disagreement_warn"]) if warn is None else float(warn)
+
+    rows_arr = np.asarray(rows, dtype=np.float32)
+    if rows_arr.ndim == 1 and rows_arr.size == 0:
+        rows_arr = rows_arr.reshape(0, 512)
+    if rows_arr.ndim != 2 or rows_arr.shape[1] != 512:
+        raise ValueError(f"rows must have shape (N, 512), got {rows_arr.shape}")
+
+    orig_list = [float(s) for s in original_scores]
+    if len(orig_list) != rows_arr.shape[0]:
+        raise ValueError(
+            f"original_scores length ({len(orig_list)}) must match rows count ({rows_arr.shape[0]})"
+        )
+
+    enh_vec = _embed_image_path(enhanced_crop_path)
+    if enh_vec is None:
+        return {
+            "rows": [
+                {"similarity_secondary": None, "delta": None, "warning": None}
+                for _ in orig_list
+            ],
+            "basis": "original",
+            "reliability_note": None,
+            "top_level_warning": None,
+            "enhanced_embedding_found": False,
+            "note": "Could not extract face embedding from enhanced crop",
+        }
+
+    enh_norm = _normalize_vec(enh_vec, np)
+    norms = np.linalg.norm(rows_arr, axis=1, keepdims=True)
+    safe_rows = np.where(norms > 0.0, rows_arr / np.maximum(norms, 1e-12), rows_arr)
+    sims_sec = (safe_rows @ enh_norm).tolist() if rows_arr.shape[0] > 0 else []
+
+    row_results: list[dict[str, Any]] = []
+    any_warning = False
+    for orig_s, sec_s in zip(orig_list, sims_sec):
+        sec_f = float(sec_s)
+        delta = abs(orig_s - sec_f)
+        row_warn = ENHANCEMENT_WARNING if delta > warn_thresh else None
+        if row_warn is not None:
+            any_warning = True
+        row_results.append(
+            {
+                "similarity_secondary": sec_f,
+                "delta": delta,
+                "warning": row_warn,
+            }
+        )
+
+    return {
+        "rows": row_results,
+        "basis": "original",
+        "reliability_note": None,
+        "top_level_warning": ENHANCEMENT_WARNING if any_warning else None,
+        "enhanced_embedding_found": True,
+        "note": None,
+    }
+
+
 def search_with_enhancement(
     index_dir: str | Path,
     original_crop_path: str | Path | None,
@@ -71,23 +166,23 @@ def search_with_enhancement(
         else _embed_image_path(enhanced_crop_path)
     )
 
-    if orig_vec is not None:
-        basis = "original"
+    basis_info = determine_basis(orig_vec, enh_vec)
+    basis = basis_info["basis"]
+    reliability_note = basis_info["reliability_note"]
+
+    if basis == "original":
         basis_vec = _normalize_vec(orig_vec, np)
         sec_vec = _normalize_vec(enh_vec, np) if enh_vec is not None else None
-        reliability_note = None
-    elif enh_vec is not None:
-        basis = "enhanced"
+    elif basis == "enhanced":
         basis_vec = _normalize_vec(enh_vec, np)
         sec_vec = None
-        reliability_note = _ENHANCED_BASIS_NOTE
     else:
         return SearchResult(
             basis="none",
-            banner=_BANNER_MSG,
+            banner=basis_info["banner"],
             reliability_note=None,
             top_level_warning=None,
-            reason="Could not extract face embedding from original or enhanced crop",
+            reason=basis_info["reason"],
             matches=[],
         )
 
@@ -131,7 +226,7 @@ def search_with_enhancement(
         if sim_s is not None:
             delta = abs(sim_p - sim_s)
             if delta > warn_thresh:
-                warning = _DISAGREEMENT_MSG
+                warning = ENHANCEMENT_WARNING
                 any_warning = True
 
         matches.append(
@@ -152,7 +247,7 @@ def search_with_enhancement(
         basis=basis,
         banner=_BANNER_MSG,
         reliability_note=reliability_note,
-        top_level_warning=_DISAGREEMENT_MSG if any_warning else None,
+        top_level_warning=ENHANCEMENT_WARNING if any_warning else None,
         reason=None if matches else "No matching tracks after filtering",
         matches=matches,
     )

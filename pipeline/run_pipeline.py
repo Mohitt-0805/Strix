@@ -21,6 +21,13 @@ from pipeline.errors import (
     ZoneNotFoundError,
     validate_zone_polygon,
 )
+from pipeline.sampling import (
+    DEFAULT_MAX_SAMPLED_FRAMES,
+    DEFAULT_MIN_SAMPLE_FPS,
+    DEFAULT_WINDOW_MARGIN_SEC,
+    check_coverage_end,
+    resolve_window_sample_fps,
+)
 
 
 def _emit_progress(
@@ -211,17 +218,44 @@ def run(
         tx_iso = transaction_time
 
     timings_ms: dict[str, float] = {}
+    warnings: list[str] = []
 
-    # 1. Sample frames (window +/- 1s margin, capped at 200 frames in iter_sampled_frames).
+    # 1. Plan effective FPS so the full window fits in MAX_SAMPLED_FRAMES (200), then sample frames.
+    requested_fps = float(sample_fps)
+    effective_fps, _needed_frames, fps_warning = resolve_window_sample_fps(
+        float(window_sec),
+        requested_fps,
+        margin_sec=DEFAULT_WINDOW_MARGIN_SEC,
+        max_frames=DEFAULT_MAX_SAMPLED_FRAMES,
+        min_fps=DEFAULT_MIN_SAMPLE_FPS,
+    )
+
     _emit_progress(progress_cb, "frames", 0.05, "Sampling video frames")
+    if fps_warning is not None:
+        warnings.append(fps_warning)
+        _emit_progress(progress_cb, "frames", 0.06, fps_warning)
+
     t0 = time.perf_counter()
-    start_sec = max(0.0, float(tx_offset_sec) - float(window_sec) - 1.0)
-    end_sec = float(tx_offset_sec) + float(window_sec) + 1.0
+    start_sec = max(0.0, float(tx_offset_sec) - float(window_sec) - DEFAULT_WINDOW_MARGIN_SEC)
+    end_sec = float(tx_offset_sec) + float(window_sec) + DEFAULT_WINDOW_MARGIN_SEC
     try:
-        samples = list(iter_sampled_frames(video_path, start_sec, end_sec, float(sample_fps)))
+        samples = list(iter_sampled_frames(video_path, start_sec, end_sec, effective_fps))
     except Exception as exc:
         raise VideoUnreadableError(f"Failed to sample frames from {video_path}: {exc}") from exc
     timings_ms["frames"] = round((time.perf_counter() - t0) * 1000.0, 2)
+
+    win_end = float(tx_offset_sec) + float(window_sec)
+    cov_start = round(float(samples[0][0]), 3) if samples else None
+    cov_end = round(float(samples[-1][0]), 3) if samples else None
+    if samples:
+        cov_warn = check_coverage_end(float(samples[-1][0]), win_end, effective_fps)
+        if cov_warn is not None:
+            warnings.append(cov_warn)
+            _emit_progress(progress_cb, "frames", 0.08, cov_warn)
+    else:
+        empty_warn = f"No frames sampled in window [{max(0.0, float(tx_offset_sec) - float(window_sec)):.2f}, {win_end:.2f}]s."
+        warnings.append(empty_warn)
+        _emit_progress(progress_cb, "frames", 0.08, empty_warn)
 
     if not samples:
         _emit_progress(progress_cb, "save", 0.95, "Saving empty result")
@@ -235,6 +269,11 @@ def run(
             link_low_margin=False,
             selection_reason="Face not visible",
             timings_ms=timings_ms,
+            requested_sample_fps=requested_fps,
+            effective_sample_fps=effective_fps,
+            warnings=warnings,
+            coverage_start_sec=cov_start,
+            coverage_end_sec=cov_end,
         )
         result_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
         _emit_progress(progress_cb, "done", 1.0, "Done")
@@ -261,7 +300,7 @@ def run(
     # 3. Tracking.
     _emit_progress(progress_cb, "track", 0.50, "Tracking persons")
     t0 = time.perf_counter()
-    tracks = _run_tracking(samples, detections, tracker=tracker, sample_fps=float(sample_fps))
+    tracks = _run_tracking(samples, detections, tracker=tracker, sample_fps=effective_fps)
     timings_ms["track"] = round((time.perf_counter() - t0) * 1000.0, 2)
 
     # 4. Transaction linking.
@@ -290,6 +329,11 @@ def run(
             link_low_margin=bool(link_res.low_margin),
             selection_reason=None,
             timings_ms=timings_ms,
+            requested_sample_fps=requested_fps,
+            effective_sample_fps=effective_fps,
+            warnings=warnings,
+            coverage_start_sec=cov_start,
+            coverage_end_sec=cov_end,
         )
         result_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
         _emit_progress(progress_cb, "done", 1.0, "Done")
@@ -308,6 +352,11 @@ def run(
             link_low_margin=bool(link_res.low_margin),
             selection_reason=None,
             timings_ms=timings_ms,
+            requested_sample_fps=requested_fps,
+            effective_sample_fps=effective_fps,
+            warnings=warnings,
+            coverage_start_sec=cov_start,
+            coverage_end_sec=cov_end,
         )
         result_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
         _emit_progress(progress_cb, "done", 1.0, "Done")
@@ -382,6 +431,11 @@ def run(
         link_low_margin=bool(link_res.low_margin),
         selection_reason=sel_reason,
         timings_ms=timings_ms,
+        requested_sample_fps=requested_fps,
+        effective_sample_fps=effective_fps,
+        warnings=warnings,
+        coverage_start_sec=cov_start,
+        coverage_end_sec=cov_end,
     )
     result_path.write_text(res.model_dump_json(indent=2), encoding="utf-8")
     _emit_progress(progress_cb, "done", 1.0, "Done")
@@ -391,6 +445,14 @@ def run(
 def _print_summary(res: PipelineResult, result_path: Path) -> None:
     demo_suffix = ' | "served_from_demo_pack": true' if res.served_from_demo_pack else ""
     print(f"\nClip: {res.clip_id} | Track: {res.person_track_id} | Link confidence: {res.link_confidence}{demo_suffix}")
+    if res.effective_sample_fps is not None or res.coverage_start_sec is not None:
+        print(
+            f"Sampling: requested_fps={res.requested_sample_fps} | "
+            f"effective_fps={res.effective_sample_fps} | "
+            f"coverage=[{res.coverage_start_sec}, {res.coverage_end_sec}]s"
+        )
+    for w in res.warnings:
+        print(f"WARNING: {w}")
     if res.link_reason:
         print(f"Link reason: {res.link_reason}")
     if res.selection_reason:
