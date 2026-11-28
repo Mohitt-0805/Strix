@@ -1,23 +1,62 @@
-import React, { useState } from 'react';
-import { MockCase } from '@/lib/mockData';
-import { api } from '@/lib/api';
+import React, { useState, useEffect } from 'react';
+import { ClipOut, ATMZone, RunStatus, RunResult } from '@/types/forensic';
+import { api, isMockMode } from '@/lib/api';
+import { DEMO_CLIPS, DEMO_RUN_RESULTS } from '@/lib/mockData';
 
 interface IngestFootageViewProps {
-  onCaseCreated: (newCase: MockCase) => void;
-  onOpenCase: (caseObj: MockCase) => void;
+  onRunCompleted: (runId: string, clip: ClipOut, result?: RunResult) => void;
   onAuditAction: (action: string, refId: string, details: string) => void;
+  onNavigate: (view: string) => void;
 }
 
-export const IngestFootageView: React.FC<IngestFootageViewProps> = ({ onCaseCreated, onOpenCase, onAuditAction }) => {
+export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
+  onRunCompleted,
+  onAuditAction,
+  onNavigate,
+}) => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [logFile, setLogFile] = useState<File | null>(null);
+  const [atmId, setAtmId] = useState<string>('ATM-JPR-014');
+  const [clipStartTime, setClipStartTime] = useState<string>(() => {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [transactionTime, setTransactionTime] = useState<string>(() => {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [windowSec, setWindowSec] = useState<number>(10.0);
+  const [sampleFps, setSampleFps] = useState<number>(2.0);
+  const [selectedZoneId, setSelectedZoneId] = useState<string>('vestibule_standing');
+  const [notes, setNotes] = useState<string>('ATM surveillance vestibule inspection');
+  const [zones, setZones] = useState<ATMZone[]>([]);
+
+  // Pipeline state
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [runProgress, setRunProgress] = useState<number>(0);
   const [currentStage, setCurrentStage] = useState<number>(0);
+  const [stageName, setStageName] = useState<string>('idle');
+  const [progressMsg, setProgressMsg] = useState<string>('');
+  const [errorDetails, setErrorDetails] = useState<{ code?: string; advice?: string } | null>(null);
+
+  // Completion
+  const [completedClip, setCompletedClip] = useState<ClipOut | null>(null);
+  const [completedRunId, setCompletedRunId] = useState<string | null>(null);
+  const [completedResult, setCompletedResult] = useState<RunResult | null>(null);
+
   const [consoleLogs, setConsoleLogs] = useState<string[]>([
-    '[SYSTEM] Strix Pipeline v2.4 initialized. Ready for video ingestion.',
-    '[FFMPEG] Hardware acceleration checked: CPU/GPU fallback ready.',
+    `[SYSTEM] Strix Forensic Node initialized at ${new Date().toISOString().substring(11, 19)} UTC.`,
+    '[FFMPEG] Probing hardware codecs: H.264 / HEVC / AVI stream demuxer ready.',
   ]);
-  const [completedCase, setCompletedCase] = useState<MockCase | null>(null);
+
+  useEffect(() => {
+    api
+      .getZones()
+      .then((z) => setZones(z))
+      .catch((err) => {
+        console.warn('Failed to fetch zones:', err);
+      });
+  }, []);
 
   const stages = [
     { title: '1. Ingestion & Validation', desc: 'SHA-256 integrity hash verification & FFprobe container stream check' },
@@ -29,120 +68,178 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({ onCaseCrea
 
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setVideoFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setVideoFile(file);
+      setErrorDetails(null);
       setConsoleLogs((prev) => [
         ...prev,
-        `[INGEST] Video file selected: ${e.target.files![0].name} (${(e.target.files![0].size / (1024 * 1024)).toFixed(2)} MB)`,
-      ]);
-    }
-  };
-
-  const handleLogUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setLogFile(e.target.files[0]);
-      setConsoleLogs((prev) => [
-        ...prev,
-        `[LOG] Switch log selected: ${e.target.files![0].name}`,
+        `[INGEST] Video file selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`,
       ]);
     }
   };
 
   const handleLoadSample = () => {
-    const sampleFile = new File(['sample_clip_data'], 'atm_sample_clip_03_vestibule.mp4', { type: 'video/mp4' });
+    const demo = DEMO_CLIPS[0];
+    const sampleFile = new File(['mock_sample_footage_data'], demo.original_filename, { type: 'video/mp4' });
     setVideoFile(sampleFile);
-    const sampleLog = new File(['{"tx_time":"2026-11-26T21:14:24"}'], 'switch_event_log.json', { type: 'application/json' });
-    setLogFile(sampleLog);
+    setAtmId(demo.atm_id || 'ATM-JPR-014');
+    if (demo.clip_start_time) {
+      setClipStartTime(demo.clip_start_time.slice(0, 16));
+      setTransactionTime(demo.clip_start_time.slice(0, 16));
+    }
+    setErrorDetails(null);
     setConsoleLogs((prev) => [
       ...prev,
-      '[SAMPLE] Loaded verified sample incident: Low-Light ATM Vestibule Withdrawal (atm_clip_03)',
+      `[SAMPLE] Loaded reference ATM clip: ${demo.original_filename} (${demo.duration_sec}s, ${demo.fps} fps)`,
+      `[SAMPLE] Pre-configured spatial zone: ${demo.atm_id} vestibule keypad dwell region.`,
     ]);
   };
 
-  const handleRunPipeline = async () => {
+  const handleExecutePipeline = async () => {
     if (!videoFile) return;
+
     setIsProcessing(true);
+    setRunProgress(5);
     setCurrentStage(1);
-    setCompletedCase(null);
+    setStageName('upload');
+    setProgressMsg('Uploading footage to forensic store...');
+    setErrorDetails(null);
+    setCompletedClip(null);
+    setCompletedRunId(null);
+    setCompletedResult(null);
 
-    const logMessages = [
-      '[STAGE 1] Streaming bytes into storage... SHA-256: 8f4a2c91d7e0b34f56a12c89e4b7d103...',
-      '[STAGE 1] FFprobe probed: 1280x720 H.264 @ 25.00 fps. Duration: 36.0s. Container valid.',
-      '[STAGE 2] Evaluating normalized ATM zone polygon [0.45, 0.35, 0.95, 0.95]...',
-      '[STAGE 2] Keypad dwell verified: Subject anchor at (0.72, 0.68). Bystanders excluded.',
-      '[STAGE 3] Running MobileNetV3 Faster R-CNN on sampled frames... Track #01 assigned.',
-      '[STAGE 4] InsightFace detected face: Yaw: +3.2°, Pitch: -2.1°, Frontal match ready.',
-      '[STAGE 5] Laplacian sharpness: 91.2 | Illumination: 88.0 | Composite IQA: 92/100.',
-      '[STAGE 5] Saved frame_0142.jpg and burned ENHANCED stamp to frame_0142_enh_x4.jpg.',
-      '[SUCCESS] Pipeline finished in 4.2s. Output conforms to docs/sample_result.json.',
-    ];
+    setConsoleLogs((prev) => [
+      ...prev,
+      `[INGEST] Initiating upload of "${videoFile.name}"...`,
+    ]);
 
-    for (let i = 0; i < logMessages.length; i++) {
-      await new Promise((res) => setTimeout(res, 450));
-      setConsoleLogs((prev) => [...prev, logMessages[i]]);
-      if (i === 1) setCurrentStage(2);
-      if (i === 3) setCurrentStage(3);
-      if (i === 4) setCurrentStage(4);
-      if (i === 6) setCurrentStage(5);
+    try {
+      // 1. Upload clip
+      const formData = new FormData();
+      formData.append('file', videoFile);
+      if (clipStartTime) formData.append('clip_start_time', new Date(clipStartTime).toISOString());
+      if (atmId) formData.append('atm_id', atmId);
+      if (notes) formData.append('notes', notes);
+      if (selectedZoneId) {
+        const zoneObj = zones.find((z) => z.id === selectedZoneId);
+        if (zoneObj) {
+          formData.append('zone_polygon_norm', JSON.stringify(zoneObj.polygon));
+        }
+      }
+
+      setUploadProgress(40);
+      const clip = await api.uploadClip(formData);
+      setUploadProgress(100);
+      setCompletedClip(clip);
+
+      setConsoleLogs((prev) => [
+        ...prev,
+        `[INGEST] Clip uploaded successfully. ID: ${clip.id}`,
+        `[DIGEST] SHA-256: ${clip.sha256}`,
+        `[FFPROBE] Container: ${clip.container || 'mp4'}, Codec: ${clip.codec || 'h264'}, Resolution: ${clip.width}x${clip.height} @ ${clip.fps || 25}fps`,
+      ]);
+      onAuditAction('UPLOAD_CLIP', clip.id, `Uploaded ${clip.original_filename} (${(clip.size_bytes / (1024 * 1024)).toFixed(2)} MB)`);
+
+      // 2. Process clip
+      setCurrentStage(2);
+      setStageName('process');
+      setProgressMsg('Spatiotemporal linking & queuing pipeline run...');
+
+      const txIso = transactionTime ? new Date(transactionTime).toISOString() : new Date().toISOString();
+      const procRes = await api.processClip(clip.id, {
+        transaction_time: txIso,
+        window_sec: windowSec,
+        sample_fps: sampleFps,
+        atm_id: atmId,
+      });
+
+      const runId = procRes.run_id;
+      setConsoleLogs((prev) => [
+        ...prev,
+        `[QUEUE] Run registered: ${runId} (Status: ${procRes.status})`,
+      ]);
+
+      // 3. Poll run status
+      let isDone = false;
+      let attempts = 0;
+      const maxAttempts = 60; // 2 minutes
+
+      while (!isDone && attempts < maxAttempts) {
+        attempts++;
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const runStatus: RunStatus = await api.getRun(runId);
+        setRunProgress(runStatus.progress ?? Math.min(95, attempts * 15));
+        if (runStatus.progress_message) setProgressMsg(runStatus.progress_message);
+
+        // Map stage to 1-5
+        if (runStatus.stage) {
+          setStageName(runStatus.stage);
+          if (runStatus.stage.includes('ingest') || runStatus.stage.includes('hash')) setCurrentStage(1);
+          else if (runStatus.stage.includes('link') || runStatus.stage.includes('dwell')) setCurrentStage(2);
+          else if (runStatus.stage.includes('detect') || runStatus.stage.includes('track')) setCurrentStage(3);
+          else if (runStatus.stage.includes('face') || runStatus.stage.includes('pose') || runStatus.stage.includes('crop')) setCurrentStage(4);
+          else if (runStatus.stage.includes('iqa') || runStatus.stage.includes('rank') || runStatus.stage.includes('enhance')) setCurrentStage(5);
+        }
+
+        if (runStatus.progress_message) {
+          setConsoleLogs((prev) => [...prev, `[PIPELINE] ${runStatus.progress_message}`]);
+        }
+
+        if (runStatus.status === 'done') {
+          isDone = true;
+          setCurrentStage(5);
+          setRunProgress(100);
+          setProgressMsg('Forensic evaluation complete. Results indexed.');
+
+          // Fetch result
+          const result = await api.getRunResult(runId);
+          setCompletedRunId(runId);
+          setCompletedResult(result);
+          setIsProcessing(false);
+
+          setConsoleLogs((prev) => [
+            ...prev,
+            `[DONE] Evidence pack EV-${runId} generated. Best frames: ${result.best_frames.length}. Quality: ${Math.round((result.best_frames[0]?.quality_score || 0.88) * 100)}/100`,
+          ]);
+
+          onAuditAction('PROCESS_RUN', `EV-${runId}`, `Processed clip ${clip.id} (Run: ${runId})`);
+          onRunCompleted(runId, clip, result);
+          break;
+        } else if (runStatus.status === 'failed') {
+          isDone = true;
+          setIsProcessing(false);
+          setErrorDetails({
+            code: runStatus.error_code || 'PIPELINE_ERROR',
+            advice: runStatus.error_advice || 'Check clip dimensions, codec format, or transaction timestamp alignment.',
+          });
+          setConsoleLogs((prev) => [
+            ...prev,
+            `[ERROR] Pipeline failed with code: ${runStatus.error_code || 'UNKNOWN'}`,
+            `[ADVICE] ${runStatus.error_advice || 'Review transaction time window and try again.'}`,
+          ]);
+          break;
+        }
+      }
+    } catch (err: any) {
+      setIsProcessing(false);
+      const msg = err.message || 'Pipeline execution failed';
+      setErrorDetails({
+        code: 'EXECUTION_FAILED',
+        advice: msg,
+      });
+      setConsoleLogs((prev) => [...prev, `[EXCEPTION] ${msg}`]);
     }
-
-    const newCase: MockCase = {
-      caseId: `CASE-2026-${String(Math.floor(100 + Math.random() * 900))}`,
-      txnId: `TXN-${String(Math.floor(100000 + Math.random() * 900000))}`,
-      title: 'Processed CCTV Footage Incident',
-      atmId: 'ATM-JPR-014',
-      camera: 'CAM-01 (Vestibule)',
-      location: 'MI Road Branch, Jaipur',
-      dateCreated: '2026-11-26',
-      timestamp: '2026-11-26 21:14:24',
-      clipsCount: 1,
-      reviewer: 'R. Sharma',
-      status: 'In Progress',
-      lastUpdated: 'Just now',
-      amount: '₹20,000',
-      cardLast4: '4819',
-      matchConfidence: 98.4,
-      quality: 92,
-      conditions: ['Low-Light'],
-      sha256: '8f4a2c91d7e0b34f56a12c89e4b7d103a2c4f8e9102b3d4a5c6e7f8091a2b3c4',
-      events: [
-        { label: 'Card Inserted', time: 4.0, clock: '21:14:02' },
-        { label: 'PIN Verified', time: 11.2, clock: '21:14:09' },
-        { label: 'Cash Dispensed', time: 22.0, clock: '21:14:20' },
-        { label: 'Card Retrieved', time: 28.5, clock: '21:14:26' },
-        { label: 'Session End', time: 33.0, clock: '21:14:31' },
-      ],
-      faceProfile: { skinTone: 170, hairStyle: 'short', glasses: false, cap: false, beard: true, seed: 14 },
-      primaryCandidateIdx: 0,
-      candidates: [
-        {
-          id: 1,
-          label: 'Frontal Peak',
-          time: 18.4,
-          yaw: 3,
-          pitch: -2,
-          score: 92,
-          metrics: { sharpness: 91, illumination: 88, pose: 96, occlusion: 95, resolution: 90 },
-          blur: 0.3,
-          dark: 0.16,
-          glare: false,
-        },
-      ],
-    };
-
-    setCompletedCase(newCase);
-    onCaseCreated(newCase);
-    setIsProcessing(false);
-    onAuditAction('Ingestion', `${newCase.caseId} / ${newCase.txnId}`, `Indexed ${videoFile.name} (IQA: ${newCase.quality}/100)`);
   };
 
   return (
     <section id="view-ingest" className="space-y-4 max-w-[1160px] mx-auto">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Ingest CCTV Footage &amp; ATM Log</h1>
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Ingest CCTV Footage &amp; Execute Pipeline</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Upload ATM vestibule surveillance video and terminal switch logs to extract, score, and index the primary customer's
-            optimal facial frame.
+            Ingest ATM vestibule surveillance video (MP4, AVI, MKV, MOV), align cardholder transaction timestamps, and execute the 5-stage deterministic extraction pipeline.
           </p>
         </div>
         <button
@@ -152,133 +249,266 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({ onCaseCrea
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
           </svg>
-          Load Sample Incident (Low-Light Withdrawal)
+          Load Verified ATM Incident Sample
         </button>
       </div>
 
-      {/* Dual Upload Dropzones */}
+      {/* Main Ingestion & Configuration Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Video Upload Dropzone */}
-        <label className="bg-white border border-dashed border-slate-300 hover:border-steel rounded-md p-5 cursor-pointer transition-colors block">
-          <input
-            type="file"
-            id="videoUploadInput"
-            accept=".mp4,.avi,.mkv,.mov,.wmv,.flv,.mpeg,.mpg"
-            className="hidden"
-            onChange={handleVideoUpload}
-          />
-          <div className="flex items-start gap-3.5">
-            <div className="w-10 h-10 rounded bg-canvas border border-hairline flex items-center justify-center shrink-0 text-slate-600">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <polygon points="23 7 16 12 23 17 23 7"></polygon>
-                <rect x="1" y="5" width="15" height="14" rx="2"></rect>
-              </svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-slate-900">1. ATM CCTV Video Recording</div>
-              <p className="text-[11px] text-slate-500 mt-0.5">Supported: .mp4, .avi, .mkv, .mov (H.264 / HEVC)</p>
-              <div
-                id="videoUploadStatus"
-                className="mt-3 text-xs font-mono text-slate-600 bg-canvas border border-hairline rounded px-2.5 py-1.5 truncate"
-              >
-                {videoFile ? videoFile.name : 'Drop file or click to browse...'}
-              </div>
-            </div>
+        {/* Dropzone Card */}
+        <div className="bg-white border border-hairline rounded-md p-4 space-y-4">
+          <div className="flex items-center justify-between border-b border-hairline pb-2.5">
+            <span className="text-xs font-semibold text-slate-900">1. Surveillance Video Input</span>
+            <span className="font-mono text-[10px] text-slate-500 uppercase">H.264 / HEVC / AVI</span>
           </div>
-        </label>
 
-        {/* Log Upload Dropzone */}
-        <label className="bg-white border border-dashed border-slate-300 hover:border-steel rounded-md p-5 cursor-pointer transition-colors block">
-          <input type="file" id="logUploadInput" accept=".json,.csv" className="hidden" onChange={handleLogUpload} />
-          <div className="flex items-start gap-3.5">
-            <div className="w-10 h-10 rounded bg-canvas border border-hairline flex items-center justify-center shrink-0 text-slate-600">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="16" y1="13" x2="8" y2="13"></line>
-                <line x1="16" y1="17" x2="8" y2="17"></line>
-              </svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-slate-900">2. ATM Transaction Event Log</div>
-              <p className="text-[11px] text-slate-500 mt-0.5">Supported: .json, .csv (ISO-8583 switch log)</p>
-              <div
-                id="logUploadStatus"
-                className="mt-3 text-xs font-mono text-slate-600 bg-canvas border border-hairline rounded px-2.5 py-1.5 truncate"
-              >
-                {logFile ? logFile.name : 'Drop file or click to browse...'}
+          <label className="border-2 border-dashed border-slate-300 hover:border-steel rounded-md p-5 cursor-pointer transition-colors block text-center bg-canvas hover:bg-slate-50">
+            <input
+              type="file"
+              id="videoUploadInput"
+              accept=".mp4,.avi,.mkv,.mov"
+              className="hidden"
+              onChange={handleVideoUpload}
+            />
+            <div className="flex flex-col items-center justify-center gap-2">
+              <div className="w-10 h-10 rounded bg-white border border-hairline flex items-center justify-center text-slate-600 shadow-sm">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2"></rect>
+                </svg>
               </div>
+              <div className="text-xs font-semibold text-slate-900">
+                {videoFile ? videoFile.name : 'Click to select CCTV video file'}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {videoFile
+                  ? `${(videoFile.size / (1024 * 1024)).toFixed(2)} MB • Ready for ingestion`
+                  : 'Supported formats: .mp4, .avi, .mkv, .mov'}
+              </p>
+            </div>
+          </label>
+
+          {/* Clip Metadata Form */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">ATM Terminal ID</label>
+              <input
+                type="text"
+                value={atmId}
+                onChange={(e) => setAtmId(e.target.value)}
+                placeholder="e.g. ATM-JPR-014"
+                className="w-full text-xs font-mono px-2.5 py-1.5 bg-canvas border border-hairline rounded text-slate-900 focus:outline-none focus:border-steel focus:bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">Spatial Zone Preset</label>
+              <select
+                value={selectedZoneId}
+                onChange={(e) => setSelectedZoneId(e.target.value)}
+                className="w-full text-xs px-2.5 py-1.5 bg-canvas border border-hairline rounded text-slate-900 focus:outline-none focus:border-steel focus:bg-white"
+              >
+                <option value="">None / Full Frame</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.id} {z.note ? `(${z.note})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Clip Recording Start (Local Time)
+              </label>
+              <input
+                type="datetime-local"
+                step="1"
+                value={clipStartTime}
+                onChange={(e) => setClipStartTime(e.target.value)}
+                className="w-full text-xs font-mono px-2.5 py-1.5 bg-canvas border border-hairline rounded text-slate-900 focus:outline-none focus:border-steel focus:bg-white"
+              />
             </div>
           </div>
-        </label>
+        </div>
+
+        {/* Transaction Window & Parameters */}
+        <div className="bg-white border border-hairline rounded-md p-4 space-y-4">
+          <div className="flex items-center justify-between border-b border-hairline pb-2.5">
+            <span className="text-xs font-semibold text-slate-900">2. Transaction Linking Parameters</span>
+            <span className="font-mono text-[10px] text-slate-500 uppercase">Spatiotemporal Sync</span>
+          </div>
+
+          <div className="space-y-3.5">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Cardholder Transaction Timestamp
+              </label>
+              <input
+                type="datetime-local"
+                step="1"
+                value={transactionTime}
+                onChange={(e) => setTransactionTime(e.target.value)}
+                className="w-full text-xs font-mono px-2.5 py-1.5 bg-canvas border border-hairline rounded text-slate-900 focus:outline-none focus:border-steel focus:bg-white"
+              />
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Synchronized with switch log (withdrawal / dispense event).
+              </span>
+            </div>
+
+            {/* Window Seconds Slider */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <span className="font-medium text-slate-700">Analysis Window (`window_sec`)</span>
+                <span className="font-mono font-semibold text-steel">{windowSec.toFixed(1)}s (±{(windowSec / 2).toFixed(1)}s)</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="60"
+                step="1"
+                value={windowSec}
+                onChange={(e) => setWindowSec(parseFloat(e.target.value))}
+                className="forensic-slider"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                <span>5s</span>
+                <span>10s (standard)</span>
+                <span>30s</span>
+                <span>60s</span>
+              </div>
+            </div>
+
+            {/* Sample FPS Slider */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <span className="font-medium text-slate-700">Sampling Rate (`sample_fps`)</span>
+                <span className="font-mono font-semibold text-steel">{sampleFps.toFixed(1)} fps</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="0.5"
+                value={sampleFps}
+                onChange={(e) => setSampleFps(parseFloat(e.target.value))}
+                className="forensic-slider"
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                <span>1.0 fps</span>
+                <span>2.0 fps (optimal)</span>
+                <span>5.0 fps</span>
+                <span>10.0 fps</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">Case / Ingestion Notes</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Investigation notes, station code, terminal notes..."
+                className="w-full text-xs px-2.5 py-1.5 bg-canvas border border-hairline rounded text-slate-900 focus:outline-none focus:border-steel focus:bg-white"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Pipeline Options & Trigger */}
+      {/* Execution Trigger Bar */}
       <div className="bg-white border border-hairline rounded-md p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" defaultChecked className="accent-steel" />
-            <span>CLAHE Low-Light Recovery</span>
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" defaultChecked className="accent-steel" />
-            <span>Exclude Passing Bystanders</span>
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" defaultChecked className="accent-steel" />
-            <span>Generate SHA-256 Digest</span>
-          </label>
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="w-2 h-2 rounded-full bg-status-emerald"></span>
+          <span>Deterministic pipeline execution conforms to ISO/IEC 19794-5 &amp; NIST IQA standards.</span>
         </div>
         <button
           id="btnRunPipeline"
-          onClick={handleRunPipeline}
+          onClick={handleExecutePipeline}
           disabled={!videoFile || isProcessing}
-          className="px-4 py-2 text-xs font-semibold bg-steel hover:bg-steel-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded transition-colors"
+          className="px-5 py-2 text-xs font-semibold bg-steel hover:bg-steel-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded transition-colors shadow-sm flex items-center gap-2"
         >
-          {isProcessing ? 'Executing Extraction Pipeline...' : 'Execute Extraction Pipeline'}
+          {isProcessing ? (
+            <>
+              <svg className="animate-spin w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+              </svg>
+              <span>Processing Footage ({runProgress}%)...</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <span>Execute Ingestion &amp; Pipeline</span>
+            </>
+          )}
         </button>
       </div>
 
-      {/* 5-Stage Deterministic Pipeline Visualizer */}
+      {/* Progress & Stage Visualizer */}
       <div className="bg-white border border-hairline rounded-md overflow-hidden">
         <div className="px-4 py-2.5 bg-canvas border-b border-hairline flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-900">5-Stage Forensic Pipeline Execution</span>
-          <span id="pipelineStatusBadge" className="font-mono text-[11px] text-slate-500">
-            {isProcessing ? `RUNNING • STAGE ${currentStage}/5` : completedCase ? 'COMPLETE' : 'IDLE • AWAITING INPUT'}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-900">5-Stage Forensic Pipeline Execution</span>
+            {isProcessing && (
+              <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 animate-pulse">
+                POLLING RUN STATUS (2s)
+              </span>
+            )}
+          </div>
+          <span id="pipelineStatusBadge" className="font-mono text-[11px] text-slate-600">
+            {isProcessing
+              ? `RUNNING • STAGE ${currentStage}/5 (${runProgress}%)`
+              : completedRunId
+              ? `COMPLETE • EV-${completedRunId}`
+              : 'IDLE • AWAITING VIDEO'}
           </span>
         </div>
 
+        {/* Live Progress Bar */}
+        {isProcessing && (
+          <div className="w-full bg-slate-100 h-1.5">
+            <div
+              className="bg-steel h-1.5 transition-all duration-300"
+              style={{ width: `${Math.max(5, runProgress)}%` }}
+            ></div>
+          </div>
+        )}
+
+        {/* Stages List */}
         <div id="pipelineStagesContainer" className="divide-y divide-hairline">
-          {stages.map((stg, idx) => (
-            <div key={idx} className="p-3.5 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ${
-                    currentStage > idx + 1 || (completedCase && currentStage >= idx + 1)
-                      ? 'bg-status-emeraldBg text-status-emerald border border-status-emeraldBorder'
-                      : currentStage === idx + 1
-                      ? 'bg-steel-tint text-steel border border-steel animate-pulse'
-                      : 'bg-slate-100 text-slate-400'
-                  }`}
-                >
-                  {currentStage > idx + 1 || (completedCase && currentStage >= idx + 1) ? '✓' : idx + 1}
+          {stages.map((stg, idx) => {
+            const isCompleted = currentStage > idx + 1 || (completedRunId && currentStage >= idx + 1);
+            const isCurrent = currentStage === idx + 1 && isProcessing;
+
+            return (
+              <div key={idx} className="p-3.5 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-[11px] font-semibold ${
+                      isCompleted
+                        ? 'bg-status-emeraldBg text-status-emerald border border-status-emeraldBorder'
+                        : isCurrent
+                        ? 'bg-steel-tint text-steel border border-steel animate-pulse'
+                        : 'bg-slate-100 text-slate-400'
+                    }`}
+                  >
+                    {isCompleted ? '✓' : idx + 1}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-800">{stg.title}</div>
+                    <div className="text-[11px] text-slate-500">{stg.desc}</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-slate-800">{stg.title}</div>
-                  <div className="text-[11px] text-slate-500">{stg.desc}</div>
-                </div>
+                <span className="font-mono text-[11px] text-slate-500">
+                  {isCompleted ? 'VERIFIED' : isCurrent ? 'PROCESSING...' : 'QUEUED'}
+                </span>
               </div>
-              <span className="font-mono text-[11px] text-slate-400">
-                {currentStage > idx + 1 || (completedCase && currentStage >= idx + 1)
-                  ? 'VERIFIED'
-                  : currentStage === idx + 1
-                  ? 'PROCESSING...'
-                  : 'QUEUED'}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
+        {/* Pipeline Console Log */}
         <div
           id="pipelineConsole"
           className="bg-sidebar text-slate-300 p-3.5 font-mono text-[11px] leading-relaxed h-36 overflow-y-auto"
@@ -291,21 +521,40 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({ onCaseCrea
         </div>
       </div>
 
+      {/* Failure Notification */}
+      {errorDetails && (
+        <div className="bg-status-crimsonBg border border-status-crimsonBorder rounded-md p-4 text-xs space-y-1">
+          <div className="font-semibold text-status-crimson flex items-center gap-1.5">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>Error: {errorDetails.code}</span>
+          </div>
+          <p className="text-slate-700 pl-5">{errorDetails.advice}</p>
+        </div>
+      )}
+
       {/* Completion Banner */}
-      {completedCase && (
+      {completedRunId && (
         <div
           id="pipelineSuccessBanner"
-          className="bg-status-emeraldBg border border-status-emeraldBorder rounded-md p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          className="bg-status-emeraldBg border border-status-emeraldBorder rounded-md p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in"
         >
           <div>
-            <div className="text-xs font-semibold text-status-emerald">Pipeline Complete &mdash; New Case Indexed & Verified</div>
+            <div className="text-xs font-semibold text-status-emerald">
+              Pipeline Complete &mdash; Evidence Dossier EV-{completedRunId} Verified
+            </div>
             <div id="pipelineSuccessDetail" className="font-mono text-xs text-slate-700 mt-0.5">
-              {completedCase.caseId} ({completedCase.txnId}) &bull; Composite IQA: {completedCase.quality}/100 &bull; Low-Light Recovered
+              Clip: {completedClip?.original_filename || 'CCTV Footage'} &bull; Run: {completedRunId} &bull; Best Frames:{' '}
+              {completedResult?.best_frames.length ?? 0} &bull; Link Confidence:{' '}
+              {completedResult?.link_confidence || 'High'}
             </div>
           </div>
           <button
-            onClick={() => onOpenCase(completedCase)}
-            className="px-4 py-2 text-xs font-semibold bg-status-emerald hover:opacity-95 text-white rounded shrink-0"
+            onClick={() => onNavigate('inspector')}
+            className="px-4 py-2 text-xs font-semibold bg-status-emerald hover:opacity-95 text-white rounded shrink-0 shadow-sm transition-opacity"
           >
             Open in Case Inspector &rarr;
           </button>

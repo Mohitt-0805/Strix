@@ -1,7 +1,6 @@
 /**
- * Core forensic types strictly aligned with:
- * - docs/api-contract.md
- * - docs/sample_result.json
+ * Strix Forensic Types strictly matching the real FastAPI backend contract:
+ * - frontend/BACKEND_API.md
  * - backend/app/schemas.py
  * - pipeline/contract.py
  */
@@ -37,6 +36,7 @@ export interface Enhancement {
   crop_box: [number, number, number, number];
   search_embedding_source: string;
   enhanced_url?: string;
+  signed_enhanced_url?: string;
 }
 
 export interface Frame {
@@ -50,24 +50,144 @@ export interface Frame {
   enhanced: boolean;
   enhancement: Enhancement | null;
   metrics: Metrics;
-  embedding_path: string;
+  embedding_path?: string;
+  signed_crop_url?: string;
+  signed_frame_url?: string;
+  crop_url?: string;
+  image_url?: string;
   match_ready?: boolean | null;
   rank_reason?: string | null;
   crop_path?: string | null;
-  image_url?: string;
-  crop_url?: string;
+  face_box?: [number, number, number, number] | null;
 }
 
-export interface PipelineResult {
+export interface RunResult {
+  run_id: string;
   clip_id: string;
   transaction_time: string;
   person_track_id: number | null;
   best_frames: Frame[];
-  link_confidence?: string | null;
+  link_confidence?: 'High' | 'Medium' | 'Low' | null;
   link_reason?: string | null;
+  link_low_margin?: boolean;
   selection_reason?: string | null;
   timings_ms?: Record<string, number> | null;
   served_from_demo_pack?: boolean;
+  selected_frame_ids?: (string | number)[];
+}
+
+// Alias for backwards compatibility with pipeline results
+export type PipelineResult = RunResult;
+
+export interface ClipOut {
+  id: string;
+  original_filename: string;
+  stored_path: string;
+  sha256: string;
+  size_bytes: number;
+  duration_sec: number;
+  fps: number | null;
+  width: number;
+  height: number;
+  codec: string | null;
+  container: string | null;
+  rotation: number;
+  clip_start_time: string | null;
+  clip_start_source: 'ffprobe_converted' | 'user' | 'unknown';
+  atm_id: string | null;
+  zone_polygon_norm: [number, number][] | null;
+  notes: string | null;
+  uploaded_by: number;
+  created_at: string;
+  video_url: string;
+}
+
+export interface ClipPatchRequest {
+  clip_start_time?: string | null;
+  atm_id?: string | null;
+  zone_polygon_norm?: [number, number][] | null;
+  notes?: string | null;
+}
+
+export interface ATMZone {
+  id: string;
+  polygon: [number, number][];
+  note?: string;
+}
+
+export interface ProcessClipRequest {
+  transaction_time: string;
+  window_sec: number;
+  sample_fps: number;
+  tracker?: string;
+  atm_id?: string;
+}
+
+export interface ProcessClipResponse {
+  run_id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+}
+
+export interface RunStatus {
+  run_id: string;
+  clip_id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  stage?: string;
+  progress?: number; // 0 to 100
+  progress_message?: string;
+  error_code?: string;
+  error_advice?: string;
+  transaction_time?: string;
+  window_sec?: number;
+  sample_fps?: number;
+  created_at?: string;
+  finished_at?: string;
+  selected_frame_ids?: (string | number)[];
+}
+
+export interface SelectionRequest {
+  frame_ids: (string | number)[];
+}
+
+export interface EnhanceFrameRequest {
+  crop_box: [number, number, number, number]; // [naturalX, naturalY, naturalW, naturalH]
+  scale: 2 | 4;
+  method?: 'lanczos' | 'espcn' | string;
+}
+
+export interface SearchRequest {
+  run_id: string;
+  frame_id: string | number;
+  top_k?: number;
+  best_per_clip?: boolean;
+}
+
+export interface SearchMatch {
+  clip_id: string;
+  filename: string;
+  run_id: string;
+  frame_id: string | number;
+  timestamp_sec: number;
+  score: number;
+  reliability: 'High' | 'Medium' | 'Low';
+  flags: string[];
+  source: 'original' | 'enhanced';
+  track_id: number;
+  short_track?: boolean;
+  crop_url?: string;
+  frame_url?: string;
+  thumbnail_url?: string;
+  signed_crop_url?: string;
+  signed_frame_url?: string;
+}
+
+export interface SearchResult {
+  search_id: string;
+  run_id: string;
+  frame_id: string | number;
+  matches: SearchMatch[];
+  notice: string;
+  score_note: string;
 }
 
 export interface AuditEntry {
@@ -99,29 +219,6 @@ export interface AuditVerifyResponse {
   reason: string | null;
 }
 
-export interface ClipOut {
-  id: string;
-  original_filename: string;
-  stored_path: string;
-  sha256: string;
-  size_bytes: number;
-  duration_sec: number;
-  fps: number | null;
-  width: number;
-  height: number;
-  codec: string | null;
-  container: string | null;
-  rotation: number;
-  clip_start_time: string | null;
-  clip_start_source: 'ffprobe_converted' | 'user' | 'unknown';
-  atm_id: string | null;
-  zone_polygon_norm: [number, number][] | null;
-  notes: string | null;
-  uploaded_by: number;
-  created_at: string;
-  video_url: string;
-}
-
 export interface PublicConfig {
   pipeline_mode: 'fake' | 'real';
   banner: string | null;
@@ -139,60 +236,4 @@ export interface PublicConfig {
   accepted_extensions: string[];
   model_labels: string[];
   display_tz: string;
-}
-
-export type CaseStatus = 'In Progress' | 'Pending Review' | 'Verified' | 'Flagged' | 'Archived' | 'Closed' | 'Under Review';
-
-export interface CaseRecord {
-  caseId: string;
-  txnId: string;
-  title: string;
-  atmId: string;
-  camera: string;
-  location: string;
-  dateCreated: string;
-  timestamp: string;
-  clipsCount: number;
-  reviewer: string;
-  status: CaseStatus;
-  lastUpdated: string;
-  amount: string;
-  cardLast4: string;
-  matchConfidence: number;
-  quality: number;
-  conditions: string[];
-  sha256: string;
-  bestFrames: Frame[];
-  notes?: string;
-  videoUrl?: string;
-  clipId?: string;
-  served_from_demo_pack?: boolean;
-}
-
-export interface FrameExtractRequest {
-  start_sec: number;
-  end_sec: number;
-  fps: number;
-}
-
-export interface FrameEnhanceRequest {
-  crop_box: [number, number, number, number];
-  scale: 2 | 4;
-  method: 'Baseline' | 'Fast' | 'Detailed';
-}
-
-export interface FaceSearchMatch {
-  match_id: string;
-  clip_id: string;
-  timestamp_sec: number;
-  original_similarity: number;
-  enhanced_similarity?: number;
-  similarity_secondary?: number;
-  delta?: number;
-  warning?: string;
-  reliability?: 'High' | 'Medium' | 'Low';
-  thumbnail_url: string;
-  location?: string;
-  atm_id?: string;
-  flag_warning?: string;
 }
