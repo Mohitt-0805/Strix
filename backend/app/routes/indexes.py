@@ -84,10 +84,15 @@ def enqueue_clip_index(
                 ),
             )
 
+    initial_stage = (
+        "waiting for models"
+        if job_manager.warmup_manager is not None and job_manager.warmup_manager.state == "running"
+        else "queued"
+    )
     job = ClipIndex(
         clip_id=clip.id,
         status="queued",
-        stage="queued",
+        stage=initial_stage,
         progress=None,
         start_sec=float(start_sec),
         end_sec=effective_end,
@@ -127,6 +132,11 @@ def _index_to_status_out(job: ClipIndex) -> IndexStatusOut:
         timings_ms=job.timings_ms,
         pipeline_mode=job.pipeline_mode,
         served_from_demo_pack=bool(job.served_from_demo_pack),
+        requested_sample_fps=job.requested_sample_fps,
+        effective_sample_fps=job.effective_sample_fps,
+        warnings=list(job.warnings) if job.warnings is not None else None,
+        coverage_start_sec=job.coverage_start_sec,
+        coverage_end_sec=job.coverage_end_sec,
         created_by=job.created_by,
         created_at=job.created_at,
         started_at=job.started_at,

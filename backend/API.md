@@ -2,7 +2,7 @@
 
 Base URL (local): `http://127.0.0.1:8000`
 
-> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A, Phase 6B, and Phase 9), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
+> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A, Phase 6B, Phase 9, and Phase 10), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
 
 ## Error Format
 
@@ -21,8 +21,8 @@ Every error response uses the uniform JSON shape:
 
 - **Signed media URLs (`video_url`, `image_url`, `crop_url`, `enhanced_url`, `original_url`, `frame_url`):**
   Every media URL returned by the API is a **relative** path (`/files?p=...&uid=...&exp=...&sig=...`). Prefix it with the API base URL (e.g., `${API_BASE_URL}${frame.image_url}`) and pass it directly to `<img>` or `<video>` tags **without** any `Authorization` header (browsers do not send Bearer headers from media tags, and `/files` authenticates via the short-lived HMAC signature). Video supports HTTP `Range` seeking automatically. Missing image files return `null` URLs in search and index responses rather than breaking.
-- **`pipeline_mode` and `demo_pack_enabled` from `/config/public`:**
-  Fetch `GET /config/public` on app load. When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results. When `DEMO_PACK_DIR` is set (`demo_pack_enabled: true`) and `USE_FAKE_PIPELINE=0`, matching runs (`clip_name`, `atm_id`, `tx_offset_sec` to 3 decimals, `window_sec`) and indexes (`clip_name`) are served from pre-computed cache and labelled `served_from_demo_pack: true` on `GET /runs/{id}`, `GET /runs/{id}/result`, `GET /clips/{id}/indexes`, `GET /indexes/{id}`, and on the exported Evidence PDF.
+- **`pipeline_mode`, `pipeline_ready`, and `demo_pack_enabled` from `/config/public` & `/health`:**
+  Fetch `GET /config/public` on app load (or poll `GET /health`). Startup warm-up runs asynchronously in a background thread (~8 s on the real pipeline machine, making the first job faster afterwards; instant in fake mode). While `pipeline_ready === false`, display `"Models loading..."` in the UI (jobs submitted during warm-up stay `"queued"` with stage `"waiting for models"`, and fail immediately with `MODEL_LOAD` if `warmup.state === "failed"`). When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results. When `DEMO_PACK_DIR` is set (`demo_pack_enabled: true`) and `USE_FAKE_PIPELINE=0`, matching runs (`clip_name`, `atm_id`, `tx_offset_sec` to 3 decimals, `window_sec`) and indexes (`clip_name`) are served from pre-computed cache and labelled `served_from_demo_pack: true` on `GET /runs/{id}`, `GET /runs/{id}/result`, `GET /clips/{id}/indexes`, `GET /indexes/{id}`, and on the exported Evidence PDF.
 - **Polling runs and index jobs:**
   - `POST /clips/{id}/process` returns `202` `{run_id, status}`. Poll `GET /runs/{run_id}` (e.g., every 500–1000 ms) until `status` is `"done"` or `"failed"`. Read `stage`, `progress` (`0.0–1.0` or `null`), and `progress_message` for live progress UI.
   - `POST /clips/{id}/index` (and automatic upload indexing when `AUTO_INDEX_ON_UPLOAD=1`) returns `202` `{index_id, status}`. Poll `GET /indexes/{index_id}` using the same `status`, `stage`, `progress`, and `progress_message` fields. Note that processing runs have queue priority `0` and preempt waiting index jobs (`1`).
@@ -34,6 +34,8 @@ Every error response uses the uniform JSON shape:
   `GET /indexes/{index_id}` marks `short_track: true` tracks with `confidence_note: "low confidence (short track)"`. `POST /search` hides `short_track` faces by default (`include_short_tracks: false`); surface an optional toggle to include them with a low-confidence badge.
 - **`crop_box` coordinates:**
   `POST /runs/{run_id}/frames/{frame_id}/enhance` expects `crop_box: [x, y, w, h]` in **full-frame pixels** (`w, h >= 8` after clipping to image bounds) and `scale` of `2` or `4`. `face_box` on frames is `[x1, y1, x2, y2]` in full-frame pixels.
+- **Sampling rate, coverage window, and pipeline warnings (`warnings`, `coverage_start_sec`, `coverage_end_sec`):**
+  Completed runs (`GET /runs/{run_id}`, `GET /runs/{run_id}/result`) and index jobs (`GET /clips/{id}/indexes`, `GET /indexes/{index_id}`) include optional `requested_sample_fps`, `effective_sample_fps`, `warnings` (`list[str]` or `null`), `coverage_start_sec`, and `coverage_end_sec` (`null` on older records and in fake mode). Always display `warnings` visibly to the investigator, show the `coverage_start_sec`–`coverage_end_sec` clip range covered, and alert the user if `effective_sample_fps < requested_sample_fps`.
 - **Downloading the Evidence PDF:**
   `GET /runs/{run_id}/evidence.pdf?search_id=` requires the `Authorization: Bearer <token>` header. Fetch it with `fetch(..., { headers: { Authorization: ... } })` as a `Blob` (`response.blob()`) and trigger download or open via `URL.createObjectURL(blob)`—do not navigate a plain `<a>` link without auth headers.
 
@@ -43,7 +45,7 @@ Every error response uses the uniform JSON shape:
 
 ### `GET /health`
 
-Public health check verifying SQLite connectivity and `ffmpeg`/`ffprobe` availability.
+Public health check verifying SQLite connectivity, startup warm-up readiness (`pipeline_ready`, `warmup`), and `ffmpeg`/`ffprobe` availability (never blocked by model loading).
 
 **Request:**
 ```bash
@@ -56,6 +58,16 @@ curl -s http://127.0.0.1:8000/health
   "status": "ok",
   "db": "ok",
   "pipeline_mode": "fake",
+  "pipeline_ready": true,
+  "warmup": {
+    "state": "ok",
+    "progress": 1.0,
+    "message": "Warmup complete (fake)",
+    "warnings": ["fake pipeline"],
+    "total_ms": 0.1,
+    "providers": {"faces": null, "torch_device": null},
+    "loaded": {"person_detector": null, "face_model": null, "clip": null}
+  },
   "ffmpeg": true,
   "ffprobe": true
 }
@@ -65,7 +77,7 @@ curl -s http://127.0.0.1:8000/health
 
 ### `GET /config/public`
 
-Public non-secret configuration, limits, accepted video extensions, model labels, and the mandatory human-verification notice.
+Public non-secret configuration, limits, warm-up readiness (`pipeline_ready`, `warmup_state`, `warmup`), accepted video extensions, model labels, and the mandatory human-verification notice.
 
 **Request:**
 ```bash
@@ -76,6 +88,17 @@ curl -s http://127.0.0.1:8000/config/public
 ```json
 {
   "pipeline_mode": "fake",
+  "pipeline_ready": true,
+  "warmup_state": "ok",
+  "warmup": {
+    "state": "ok",
+    "progress": 1.0,
+    "message": "Warmup complete (fake)",
+    "warnings": ["fake pipeline"],
+    "total_ms": 0.1,
+    "providers": {"faces": null, "torch_device": null},
+    "loaded": {"person_detector": null, "face_model": null, "clip": null}
+  },
   "demo_pack_enabled": false,
   "banner": "FAKE PIPELINE, DEMO DATA",
   "notice": "Possible matches only. A human investigator must verify every result.",
@@ -513,6 +536,11 @@ curl -s http://127.0.0.1:8000/runs/1 -H "Authorization: Bearer $TOKEN"
   "pipeline_mode": "fake",
   "served_from_demo_pack": false,
   "link_low_margin": false,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null,
   "created_by": 2,
   "created_at": "2026-11-26T13:40:15.000000",
   "started_at": "2026-11-26T13:40:15.010000",
@@ -598,7 +626,12 @@ curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
   "link_low_margin": false,
   "selection_reason": null,
   "show_selection_reason": false,
-  "timings_ms": null
+  "timings_ms": null,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null
 }
 ```
 
@@ -725,6 +758,11 @@ curl -s http://127.0.0.1:8000/clips/$CLIP_ID/indexes -H "Authorization: Bearer $
     "timings_ms": {"frames": 1.0, "detect_persons": 1.0, "track": 1.0, "faces": 1.0, "quality": 1.0, "save": 1.0},
     "pipeline_mode": "fake",
     "served_from_demo_pack": false,
+    "requested_sample_fps": null,
+    "effective_sample_fps": null,
+    "warnings": [],
+    "coverage_start_sec": null,
+    "coverage_end_sec": null,
     "created_by": 2,
     "created_at": "2026-11-27T07:19:22.000000",
     "started_at": "2026-11-27T07:19:22.010000",
@@ -754,6 +792,11 @@ curl -s http://127.0.0.1:8000/indexes/1 -H "Authorization: Bearer $TOKEN"
   "progress": 1.0,
   "progress_message": "Done (fake)",
   "served_from_demo_pack": false,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null,
   "total_embeddings": 5,
   "tracks": [
     {

@@ -83,6 +83,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 | `JWT_EXPIRE_MIN` | `480` | JWT expiration in minutes (default 8 hours). |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Comma-separated list of allowed browser origins. Never use `*`. |
 | `AUTO_INDEX_ON_UPLOAD` | `1` | `1` automatically queues a background clip-indexing job (`clip_indexes`) after `POST /clips`; `0` disables auto-indexing. |
+| `WARMUP_ON_START` | `1` | `1` warms up models once in a background thread on server startup without blocking `/health`; `0` skips startup warm-up. |
 | `MAX_UPLOAD_MB` | `500` | Maximum allowed uploaded clip size in megabytes (`413 FILE_TOO_LARGE` above this). |
 | `SIGNED_URL_TTL_SEC` | `900` | Lifetime in seconds for signed `/files` image and video URLs. |
 | `DISPLAY_TZ` | `Asia/Kolkata` | Local timezone used when converting FFprobe `creation_time` and rendering PDF timestamps. |
@@ -177,3 +178,4 @@ On the GPU / ML workstation (e.g., Ubuntu with CUDA/CPU weights and `requirement
    uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
    ```
    `GET /config/public` will switch `pipeline_mode` to `"real"`, omit the fake banner, and expose the real model labels.
+4. **Model warm-up (`WARMUP_ON_START=1`):** At startup, a background thread loads and warms up the models (~8 s on the pipeline machine). `/health` stays non-blocking (`pipeline_ready: false` while loading) and the first job is faster afterwards. While loading, queued jobs wait in stage `"waiting for models"`.

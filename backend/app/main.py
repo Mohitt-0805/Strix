@@ -30,6 +30,7 @@ from backend.app.routes.zones import router as zones_router
 from backend.app.security import LoginThrottle
 from backend.app.services.jobs import JobManager, mark_stale_runs_failed
 from backend.app.services.search_index import SearchIndex
+from backend.app.services.warmup import WarmupManager
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = create_db_engine(cfg.db_path)
     session_factory = create_session_factory(engine)
     search_index = SearchIndex(embed_dim=cfg.embed_dim)
+    warmup_manager = WarmupManager(settings=cfg)
     job_manager = JobManager(
         session_factory=session_factory,
         settings=cfg,
         search_index=search_index,
+        warmup_manager=warmup_manager,
     )
 
     @asynccontextmanager
@@ -70,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with session_factory() as db:
             indexed_count = search_index.rebuild_from_db(db, cfg.resolved_data_dir)
         application.state.media_tools = check_media_tools()
+        warmup_manager.start()
         logger.info(
             "Strix backend started (pipeline_mode=%s, search_backend=%s, indexed_frames=%d).",
             cfg.pipeline_mode,
@@ -91,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.media_tools = check_media_tools()
     application.state.login_throttle = LoginThrottle()
     application.state.search_index = search_index
+    application.state.warmup_manager = warmup_manager
     application.state.job_manager = job_manager
 
     application.add_middleware(
@@ -115,7 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/health")
     def health(request: Request) -> dict[str, object]:
-        """Report service health, database connectivity, and media tool availability."""
+        """Report service health, DB connectivity, pipeline readiness, and media tools."""
         if not check_db(request.app.state.engine):
             raise AppError(
                 status_code=503,
@@ -123,20 +128,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Database health check failed.",
             )
         tools: dict[str, bool] = request.app.state.media_tools
+        warmup_snap = request.app.state.warmup_manager.snapshot()
         return {
             "status": "ok",
             "db": "ok",
             "pipeline_mode": cfg.pipeline_mode,
+            "pipeline_ready": warmup_snap["state"] == "ok",
+            "warmup": warmup_snap,
             "ffmpeg": tools.get("ffmpeg", False),
             "ffprobe": tools.get("ffprobe", False),
         }
 
     @application.get("/config/public")
-    def public_config() -> dict[str, object]:
-        """Return public non-secret configuration, limits, and verification notice."""
+    def public_config(request: Request) -> dict[str, object]:
+        """Return public non-secret configuration, limits, readiness, and verification notice."""
         is_fake = cfg.use_fake_pipeline
+        warmup_snap = request.app.state.warmup_manager.snapshot()
         return {
             "pipeline_mode": cfg.pipeline_mode,
+            "pipeline_ready": warmup_snap["state"] == "ok",
+            "warmup_state": warmup_snap["state"],
+            "warmup": warmup_snap,
             "demo_pack_enabled": cfg.demo_pack_enabled,
             "banner": FAKE_BANNER_TEXT if is_fake else None,
             "notice": HUMAN_VERIFICATION_NOTICE,

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     use_fake_pipeline: bool = Field(default=True, alias="USE_FAKE_PIPELINE")
     auto_index_on_upload: bool = Field(default=True, alias="AUTO_INDEX_ON_UPLOAD")
+    warmup_on_start: bool = Field(default=True, alias="WARMUP_ON_START")
     demo_pack_dir: str | None = Field(default=None, alias="DEMO_PACK_DIR")
     data_dir: Path = Field(default=Path("./data"), alias="DATA_DIR")
     jwt_secret: str = Field(..., alias="JWT_SECRET")
