@@ -6,7 +6,7 @@ import { LoginGate } from '@/components/LoginGate';
 import { AppShell } from '@/components/AppShell';
 import { DashboardView } from '@/components/DashboardView';
 import { TransactionsView } from '@/components/TransactionsView';
-import { CaseInspectorView } from '@/components/CaseInspectorView';
+import { RunInspectorView } from '@/components/RunInspectorView';
 import { IngestFootageView } from '@/components/IngestFootageView';
 import { AuditTrailView } from '@/components/AuditTrailView';
 import { CapabilitiesModal } from '@/components/CapabilitiesModal';
@@ -159,7 +159,21 @@ export const App: React.FC = () => {
           id="mockRibbon"
           className="bg-red-600 text-white text-xs font-bold tracking-widest text-center py-1 uppercase shadow-sm sticky top-0 z-[100] border-b border-red-700 select-none"
         >
-          MOCK DATA, NOT A REAL RESULT
+          DEMO DATA
+        </div>
+      )}
+      {publicConfig?.pipeline_ready === false && (
+        <div
+          id="modelsLoadingBanner"
+          className="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 flex items-center justify-between border-b border-blue-700 sticky top-0 z-[98] animate-pulse"
+        >
+          <div className="flex items-center gap-2">
+            <span>↻</span>
+            <span>Models loading... Inference engines initializing in background.</span>
+          </div>
+          <span className="font-mono text-[10px] uppercase tracking-wide bg-blue-800/80 px-2 py-0.5 rounded">
+            INITIALIZING
+          </span>
         </div>
       )}
       {publicConfig?.banner && (
@@ -238,7 +252,7 @@ export const App: React.FC = () => {
           )}
 
           {currentView === 'inspector' && (
-            <CaseInspectorView
+            <RunInspectorView
               runResult={activeRunResult}
               clip={activeClip}
               publicConfig={publicConfig}

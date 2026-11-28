@@ -74,6 +74,9 @@ export interface RunResult {
   timings_ms?: Record<string, number> | null;
   served_from_demo_pack?: boolean;
   selected_frame_ids?: (string | number)[];
+  warnings?: string[];
+  coverage_start_sec?: number | null;
+  coverage_end_sec?: number | null;
 }
 
 // Alias for backwards compatibility with pipeline results
@@ -136,6 +139,7 @@ export interface RunStatus {
   progress?: number; // 0 to 100
   progress_message?: string;
   error_code?: string;
+  error_message?: string;
   error_advice?: string;
   transaction_time?: string;
   window_sec?: number;
@@ -221,6 +225,7 @@ export interface AuditVerifyResponse {
 
 export interface PublicConfig {
   pipeline_mode: 'fake' | 'real';
+  pipeline_ready?: boolean;
   banner: string | null;
   notice: string;
   limits: {
