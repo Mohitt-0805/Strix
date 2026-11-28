@@ -81,6 +81,11 @@ class PipelineResult(BaseModel):
     selection_reason: Optional[str] = None
     timings_ms: Optional[dict[str, float]] = None
     served_from_demo_pack: Optional[bool] = False
+    requested_sample_fps: Optional[float] = None
+    effective_sample_fps: Optional[float] = None
+    warnings: list[str] = Field(default_factory=list)
+    coverage_start_sec: Optional[float] = None
+    coverage_end_sec: Optional[float] = None
 
 
 class IndexFace(BaseModel):
@@ -123,6 +128,16 @@ class IndexResult(BaseModel):
     total_embeddings: int = 0
     timings_ms: Optional[dict[str, float]] = None
     served_from_demo_pack: Optional[bool] = False
+    requested_sample_fps: Optional[float] = None
+    effective_sample_fps: Optional[float] = None
+    warnings: list[str] = Field(default_factory=list)
+    coverage_start_sec: Optional[float] = None
+    coverage_end_sec: Optional[float] = None
+    requested_sample_fps: Optional[float] = None
+    effective_sample_fps: Optional[float] = None
+    warnings: list[str] = Field(default_factory=list)
+    coverage_start_sec: Optional[float] = None
+    coverage_end_sec: Optional[float] = None
 
 
 class SearchMatch(BaseModel):

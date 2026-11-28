@@ -93,6 +93,11 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `selection_reason` | `Optional[str]` | `None` | Explanation when no frontal face or no face is visible. |
 | `timings_ms` | `Optional[dict[str, float]]` | `None` | Stage-by-stage elapsed time in milliseconds. |
 | `served_from_demo_pack` | `Optional[bool]` | `False` | `true` when served from `DEMO_PACK_DIR` (also on `IndexResult` and `SearchResult`). UIs must show a visible 'precomputed demo result' badge when this is true. |
+| `requested_sample_fps` | `Optional[float]` | `None` | Requested frame-sampling rate before adaptive window fitting (also on `IndexResult`). |
+| `effective_sample_fps` | `Optional[float]` | `None` | Actual frame-sampling rate used so the window fits `max_frames` (also on `IndexResult`). |
+| `warnings` | `list[str]` | `[]` | Non-fatal warnings (e.g. lowered FPS for long window, truncated range, incomplete coverage; also on `IndexResult`). |
+| `coverage_start_sec` | `Optional[float]` | `None` | Timestamp in seconds of the first sampled frame (also on `IndexResult`). |
+| `coverage_end_sec` | `Optional[float]` | `None` | Timestamp in seconds of the last sampled frame (also on `IndexResult`). |
 
 ### `Frame` optional/updated fields
 | Field | Type | Default | Description |
@@ -116,6 +121,7 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `IndexResult` | `tracks` | `list[IndexTrack]` | `[]` | Every tracked person in `[start_sec, end_sec]`. |
 | `IndexResult` | `index_npz_path`, `index_json_path` | `str`, `str` | required | Saved `index.npz` (`N x 512` float32 embeddings + `metadata_json`) and `index.json`. |
 | `IndexResult` | `total_embeddings`, `timings_ms` | `int`, `Optional[dict[str, float]]` | `0`, `None` | Total indexed embeddings and stage timings. |
+| `IndexResult` | `requested_sample_fps`, `effective_sample_fps`, `warnings`, `coverage_start_sec`, `coverage_end_sec` | `Optional[float]`, `Optional[float]`, `list[str]`, `Optional[float]`, `Optional[float]` | `None`, `None`, `[]`, `None`, `None` | Requested/effective sampling FPS, truncation/coverage warnings, and sampled time coverage. |
 | `IndexTrack` | `track_id`, `first_t`, `last_t` | `int`, `float`, `float` | required | Track ID and time span. |
 | `IndexTrack` | `n_observations`, `short_track` | `int`, `bool` | `0`, `False` | Total track observations; `true` when `n_observations < 2`. |
 | `IndexTrack` | `dwell_sec_in_zone` | `Optional[float]` | `None` | Zone dwell time (only populated when a zone is given). |
@@ -133,6 +139,17 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `SearchMatch` | `track_id`, `t`, `similarity` | `int`, `float`, `float` | required | Matched track ID, timestamp, and primary cosine similarity. |
 | `SearchMatch` | `similarity_secondary`, `delta`, `warning` | `Optional[float]`, `Optional[float]`, `Optional[str]` | `None` | Secondary (enhanced) similarity, `abs` difference, and warning if `delta > disagreement_warn`. |
 | `SearchMatch` | `crop_path`, `reliability`, `match_ready` | `str`, `Optional[str]`, `Optional[bool]` | `""`, `None`, `None` | Matched crop path and quality metadata. |
+
+### Backend Comparison Helpers (`pipeline/compare.py`, `pipeline/adapter.py`, `pipeline/fake_pipeline.py`)
+- `ENHANCEMENT_WARNING`: `"Enhancement changed the result. Treat with caution."` (single source of truth).
+- `determine_basis(original_embedding, enhanced_embedding) -> dict`: returns `{"basis", "reliability_note", "reason", "banner"}`. Original embedding present selects `"original"`; only enhanced present selects `"enhanced"` with `reliability_note = "based on ENHANCED image, low reliability"`; neither selects `"none"` with a non-empty `reason`.
+- `secondary_scores(enhanced_crop_path, rows, original_scores, warn=None) -> dict` (also exposed via `adapter.get_secondary_scores()`): embeds `enhanced_crop_path` with padded retry against `(N, 512)` candidate `rows`, compares cosine similarities to `original_scores` using `disagreement_warn` from `pipeline/config/compare.json` (`0.15` by default), and returns:
+  - `rows`: `list[{"similarity_secondary": float | None, "delta": float | None, "warning": str | None}]`
+  - `basis`: `"original"`
+  - `reliability_note`: `str | None`
+  - `top_level_warning`: `ENHANCEMENT_WARNING` if any row triggered a warning, else `None`
+  - `enhanced_embedding_found`: `bool` (`false` yields `similarity_secondary=None` for all rows and a descriptive `note`)
+  - `note`: `str | None`
 
 ### Errors (`pipeline/errors.py`)
 | Exception | `code` | When raised |
