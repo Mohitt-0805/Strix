@@ -510,7 +510,7 @@ export const DEMO_RUNS: RunStatus[] = [
     status: 'done',
     stage: 'completed',
     progress: 100,
-    progress_message: 'Forensic candidate extraction complete (4 best frames identified)',
+    progress_message: 'Forensic candidate extraction complete (4 best frames extracted)',
     transaction_time: '2026-11-26T21:14:24',
     window_sec: 10.0,
     sample_fps: 2.0,

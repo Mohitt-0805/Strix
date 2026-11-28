@@ -1060,7 +1060,7 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
               <div className="flex items-center justify-between border-b border-hairline pb-2.5">
                 <div>
                   <h3 className="text-xs font-semibold text-slate-900">Cross-Clip Face Cosine Similarity Search</h3>
-                  <p className="text-[11px] text-slate-500">Query suspect against indexed ATM surveillance clips</p>
+                  <p className="text-[11px] text-slate-500">Query candidate against indexed ATM surveillance clips</p>
                 </div>
                 <button
                   onClick={handleExecuteSearch}

@@ -6,7 +6,7 @@ import { LoginGate } from '@/components/LoginGate';
 import { AppShell } from '@/components/AppShell';
 import { DashboardView } from '@/components/DashboardView';
 import { TransactionsView } from '@/components/TransactionsView';
-import { RunInspectorView } from '@/components/RunInspectorView';
+import { CaseInspectorView } from '@/components/CaseInspectorView';
 import { IngestFootageView } from '@/components/IngestFootageView';
 import { AuditTrailView } from '@/components/AuditTrailView';
 import { CapabilitiesModal } from '@/components/CapabilitiesModal';
@@ -252,7 +252,7 @@ export const App: React.FC = () => {
           )}
 
           {currentView === 'inspector' && (
-            <RunInspectorView
+            <CaseInspectorView
               runResult={activeRunResult}
               clip={activeClip}
               publicConfig={publicConfig}
