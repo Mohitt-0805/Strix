@@ -4,12 +4,105 @@ Heavy/external imports (cv2, subprocess) live inside functions so teammates
 without OpenCV can still import lightweight pipeline modules.
 """
 
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any, Iterator
 
 
 MAX_SAMPLED_FRAMES = 200
+_PTS_CACHE_DIR = Path("data/outputs/.pts_cache")
+
+
+def _pts_cache_path(video_path: Path) -> Path:
+    """Build deterministic PTS cache path keyed by resolved path, size, and mtime_ns."""
+    resolved = str(video_path.resolve())
+    st = video_path.stat()
+    key = f"{resolved}:{st.st_size}:{st.st_mtime_ns}".encode("utf-8")
+    digest = hashlib.sha256(key).hexdigest()[:24]
+    return _PTS_CACHE_DIR / f"{digest}.json"
+
+
+def _extract_float(record: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for k in keys:
+        val = record.get(k)
+        if val is not None and val != "N/A":
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _load_frame_pts(video_path: Path) -> list[float] | None:
+    """Return display-ordered per-frame PTS list via cache + ffprobe, or None on failure."""
+    try:
+        cache_path = _pts_cache_path(video_path)
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, list) and cached:
+                return [float(x) for x in cached]
+    except Exception:
+        cache_path = None  # type: ignore[assignment]
+
+    try:
+        cmd_frames = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_frames",
+            "-show_entries",
+            "frame=pts_time,pkt_pts_time,best_effort_timestamp_time",
+            "-of",
+            "json",
+            str(video_path),
+        ]
+        proc = subprocess.run(cmd_frames, capture_output=True, text=True, check=True)
+        payload = json.loads(proc.stdout)
+        pts_list = [
+            v
+            for fr in payload.get("frames", [])
+            if (v := _extract_float(fr, ("pts_time", "best_effort_timestamp_time", "pkt_pts_time"))) is not None
+        ]
+
+        if not pts_list:
+            cmd_pkts = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_packets",
+                "-show_entries",
+                "packet=pts_time,dts_time",
+                "-of",
+                "json",
+                str(video_path),
+            ]
+            proc_p = subprocess.run(cmd_pkts, capture_output=True, text=True, check=True)
+            payload_p = json.loads(proc_p.stdout)
+            pts_list = [
+                v
+                for pkt in payload_p.get("packets", [])
+                if (v := _extract_float(pkt, ("pts_time", "dts_time"))) is not None
+            ]
+
+        if not pts_list:
+            return None
+        pts_list.sort()
+    except Exception:
+        return None
+
+    try:
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(pts_list), encoding="utf-8")
+    except OSError:
+        pass
+    return pts_list
 
 
 def _parse_fps(rate_str: str) -> float:
@@ -127,6 +220,7 @@ def iter_sampled_frames(
         raise ValueError(f"Invalid source FPS ({source_fps}) for {video_path}")
 
     rotation = info["rotation"]
+    pts_table = _load_frame_pts(video_path)
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Failed to open video: {video_path}")
@@ -143,12 +237,15 @@ def iter_sampled_frames(
             if not cap.grab():
                 break
 
-            pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            pos_sec = float(pos_msec) / 1000.0 if pos_msec is not None else -1.0
-            if pos_sec >= 0.0 and (last_timestamp is None or pos_sec > last_timestamp + 1e-6):
-                timestamp = pos_sec
+            if pts_table is not None and frame_index < len(pts_table):
+                timestamp = pts_table[frame_index]
             else:
-                timestamp = frame_index / source_fps
+                pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+                pos_sec = float(pos_msec) / 1000.0 if pos_msec is not None else -1.0
+                if pos_sec >= 0.0 and (last_timestamp is None or pos_sec > last_timestamp + 1e-6):
+                    timestamp = pos_sec
+                else:
+                    timestamp = frame_index / source_fps
             last_timestamp = timestamp
             frame_index += 1
 
