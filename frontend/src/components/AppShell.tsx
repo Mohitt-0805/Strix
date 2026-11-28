@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { User } from '@/types/forensic';
-import { MockCase } from '@/lib/mockData';
 
 interface AppShellProps {
   user: User;
   currentView: string;
   onNavigate: (view: string) => void;
-  activeCase: MockCase;
-  txnCount: number;
+  activeEvidenceId?: string;
+  activeRunStatus?: string;
+  isServedFromDemo?: boolean;
+  clipCount: number;
   auditCount: number;
   onSignOut: () => void;
-  onSaveCase: () => void;
-  onRunFullDemo: () => void;
+  onSaveEvidence?: () => void;
+  onRunFullDemo?: () => void;
   children: React.ReactNode;
 }
 
@@ -19,11 +20,13 @@ export const AppShell: React.FC<AppShellProps> = ({
   user,
   currentView,
   onNavigate,
-  activeCase,
-  txnCount,
+  activeEvidenceId = 'EV-run_2026_014',
+  activeRunStatus = 'DONE',
+  isServedFromDemo = false,
+  clipCount,
   auditCount,
   onSignOut,
-  onSaveCase,
+  onSaveEvidence,
   onRunFullDemo,
   children,
 }) => {
@@ -44,17 +47,63 @@ export const AppShell: React.FC<AppShellProps> = ({
       case 'dashboard':
         return 'Dashboard';
       case 'transactions':
-        return 'Transactions';
+        return 'Clips & Surveillance';
       case 'inspector':
-        return `Case Inspector / ${activeCase.caseId}`;
+        return `Case Inspector / ${activeEvidenceId}`;
       case 'ingest':
         return 'Ingest Footage';
       case 'audit':
-        return 'Audit Trail';
+        return 'Audit Trail (Compliance)';
       default:
         return 'Dashboard';
     }
   };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toUpperCase()) {
+      case 'DONE':
+      case 'VERIFIED':
+        return {
+          text: 'text-status-emerald',
+          dot: 'bg-status-emerald',
+          bg: 'bg-status-emeraldBg',
+          border: 'border-status-emeraldBorder',
+        };
+      case 'RUNNING':
+      case 'IN PROGRESS':
+        return {
+          text: 'text-blue-600',
+          dot: 'bg-blue-600',
+          bg: 'bg-blue-50',
+          border: 'border-blue-200',
+        };
+      case 'QUEUED':
+      case 'PENDING':
+        return {
+          text: 'text-status-amber',
+          dot: 'bg-status-amber',
+          bg: 'bg-status-amberBg',
+          border: 'border-status-amberBorder',
+        };
+      case 'FAILED':
+      case 'FLAGGED':
+        return {
+          text: 'text-status-crimson',
+          dot: 'bg-status-crimson',
+          bg: 'bg-status-crimsonBg',
+          border: 'border-status-crimsonBorder',
+        };
+      default:
+        return {
+          text: 'text-slate-600',
+          dot: 'bg-slate-500',
+          bg: 'bg-slate-100',
+          border: 'border-slate-200',
+        };
+    }
+  };
+
+  const statusStyle = getStatusColor(activeRunStatus);
 
   return (
     <div id="appShell" className="h-screen w-full overflow-hidden flex flex-col md:flex-row">
@@ -92,7 +141,12 @@ export const AppShell: React.FC<AppShellProps> = ({
             </svg>
           </div>
           <div className="leading-tight min-w-0">
-            <div className="text-white font-semibold text-sm tracking-wide truncate">STRIX</div>
+            <div className="text-white font-semibold text-sm tracking-wide truncate flex items-center gap-1.5">
+              <span>STRIX</span>
+              <span className="text-[10px] font-mono px-1 py-0.2 bg-blue-950 border border-blue-700/60 text-blue-300 rounded font-normal">
+                PS04
+              </span>
+            </div>
             <div className="text-[11px] font-mono text-slate-400 truncate">ATM Video Forensics</div>
           </div>
         </div>
@@ -133,12 +187,12 @@ export const AppShell: React.FC<AppShellProps> = ({
             <svg className="w-4 h-4 shrink-0 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M3 6h18M3 12h18M3 18h18"></path>
             </svg>
-            <span>Transactions</span>
+            <span>Clips &amp; Footage</span>
             <span
               id="navTxnCount"
               className="ml-auto font-mono text-[11px] bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.5 rounded tabular-nums"
             >
-              {txnCount}
+              {clipCount}
             </span>
           </button>
 
@@ -195,9 +249,15 @@ export const AppShell: React.FC<AppShellProps> = ({
               <path d="M9 12l2 2 4-4"></path>
             </svg>
             <span>Audit Trail</span>
-            <span id="navAuditCount" className="ml-auto font-mono text-[11px] text-slate-400 tabular-nums">
-              {auditCount}
-            </span>
+            {user.role !== 'admin' ? (
+              <span className="ml-auto text-[9px] font-mono uppercase bg-slate-800 text-amber-400 border border-amber-900/40 px-1 rounded">
+                Admin
+              </span>
+            ) : (
+              <span id="navAuditCount" className="ml-auto font-mono text-[11px] text-slate-400 tabular-nums">
+                {auditCount}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -269,21 +329,21 @@ export const AppShell: React.FC<AppShellProps> = ({
             </div>
           </div>
 
-          {/* Right: Active Case Pill, Save Case, Run Full Demo */}
+          {/* Right: Active Case/Evidence Pill, Save Evidence, Run Full Demo */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            {/* Active Case Pill */}
+            {/* Active Evidence Pill */}
             <button
               onClick={() => onNavigate('inspector')}
-              title="Open active case in Case Inspector"
+              title="Open active evidence run in Case Inspector"
               className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded border border-hairline bg-canvas hover:border-slate-300 transition-colors text-xs"
             >
               <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
               </svg>
               <span id="headerActiveCaseId" className="font-mono font-semibold text-slate-800">
-                {activeCase.caseId}
+                {activeEvidenceId}
               </span>
-              {activeCase.served_from_demo_pack && (
+              {isServedFromDemo && (
                 <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase tracking-tight">
                   precomputed demo result
                 </span>
@@ -291,36 +351,40 @@ export const AppShell: React.FC<AppShellProps> = ({
               <span className="h-3.5 w-px bg-hairline"></span>
               <span
                 id="headerActiveCaseStatus"
-                className="inline-flex items-center gap-1.5 font-mono text-[11px] font-medium text-status-emerald"
+                className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-medium ${statusStyle.text}`}
               >
-                <span id="headerStatusDot" className="w-1.5 h-1.5 rounded-full bg-status-emerald"></span>
-                <span id="headerStatusText">{activeCase.status.toUpperCase()}</span>
+                <span id="headerStatusDot" className={`w-1.5 h-1.5 rounded-full ${statusStyle.dot}`}></span>
+                <span id="headerStatusText">{activeRunStatus.toUpperCase()}</span>
               </span>
             </button>
 
-            {/* Save Case Button */}
-            <button
-              onClick={onSaveCase}
-              className="px-3 py-1.5 text-xs font-medium bg-white border border-hairline hover:bg-slate-50 text-slate-700 rounded flex items-center gap-1.5 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-              <span className="hidden sm:inline">Save Case</span>
-            </button>
+            {/* Save Evidence / Save Case Button */}
+            {onSaveEvidence && (
+              <button
+                onClick={onSaveEvidence}
+                className="px-3 py-1.5 text-xs font-medium bg-white border border-hairline hover:bg-slate-50 text-slate-700 rounded flex items-center gap-1.5 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                <span className="hidden sm:inline">Save State</span>
+              </button>
+            )}
 
             {/* Run Full Demo Primary Button */}
-            <button
-              onClick={onRunFullDemo}
-              className="px-3.5 py-1.5 text-xs font-semibold bg-steel hover:bg-steel-hover text-white rounded flex items-center gap-1.5 transition-colors shadow-sm"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-              <span>Run Full Demo</span>
-            </button>
+            {onRunFullDemo && (
+              <button
+                onClick={onRunFullDemo}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-steel hover:bg-steel-hover text-white rounded flex items-center gap-1.5 transition-colors shadow-sm"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>Run Full Demo</span>
+              </button>
+            )}
           </div>
         </header>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, PublicConfig } from '@/types/forensic';
-import { INITIAL_CASES, INITIAL_AUDIT_LOGS, MockCase, MockAuditEntry } from '@/lib/mockData';
-import { api, isMockMode, MOCK_MODE, API_BASE_URL } from '@/lib/api';
+import { User, PublicConfig, ClipOut, RunResult } from '@/types/forensic';
+import { DEMO_CLIPS, DEMO_RUN_RESULTS, DEMO_AUDIT_LOGS } from '@/lib/mockData';
+import { api, isMockMode, API_BASE_URL } from '@/lib/api';
 import { LoginGate } from '@/components/LoginGate';
 import { AppShell } from '@/components/AppShell';
 import { DashboardView } from '@/components/DashboardView';
@@ -18,14 +18,20 @@ export const App: React.FC = () => {
   });
 
   const [currentView, setCurrentView] = useState<string>('dashboard');
-  const [cases, setCases] = useState<MockCase[]>(INITIAL_CASES);
-  const [activeCase, setActiveCase] = useState<MockCase>(INITIAL_CASES[0]);
-  const [auditLogs, setAuditLogs] = useState<MockAuditEntry[]>(INITIAL_AUDIT_LOGS);
+  const [clips, setClips] = useState<ClipOut[]>(DEMO_CLIPS);
+  const [activeClip, setActiveClip] = useState<ClipOut | null>(DEMO_CLIPS[0] || null);
+  const [runResults, setRunResults] = useState<RunResult[]>(Object.values(DEMO_RUN_RESULTS));
+  const [activeRunId, setActiveRunId] = useState<string>('run_2026_014');
+  const [activeRunResult, setActiveRunResult] = useState<RunResult | null>(
+    DEMO_RUN_RESULTS['run_2026_014'] || null
+  );
+
   const [capabilitiesModalOpen, setCapabilitiesModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
   const [backendUnreachable, setBackendUnreachable] = useState<boolean>(false);
 
+  // Fetch initial config and real clips
   useEffect(() => {
     api
       .getPublicConfig()
@@ -38,8 +44,23 @@ export const App: React.FC = () => {
           setBackendUnreachable(true);
         }
       });
-  }, []);
 
+    if (user) {
+      api
+        .listClips()
+        .then((serverClips) => {
+          if (serverClips && serverClips.length > 0) {
+            setClips(serverClips);
+            if (!activeClip) setActiveClip(serverClips[0]);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch server clips:', err);
+        });
+    }
+  }, [user]);
+
+  // Handle auth expired event
   useEffect(() => {
     const handleAuthExpired = () => {
       setUser(null);
@@ -55,63 +76,57 @@ export const App: React.FC = () => {
   };
 
   const addAuditEntry = (action: string, refId: string, details: string) => {
-    const newEntry: MockAuditEntry = {
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      investigator: user?.full_name || 'Insp. R. Sharma',
-      action,
-      refId,
-      details,
-      hash: Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-    };
-    setAuditLogs((prev) => [newEntry, ...prev]);
+    console.log(`[AUDIT] Action: ${action} | Ref: ${refId} | Details: ${details}`);
   };
 
   const handleLoginSuccess = (authenticatedUser: User) => {
     setUser(authenticatedUser);
-    addAuditEntry('SESSION_AUTH', 'Console Access', `User ${authenticatedUser.username} signed in from local node`);
     showToast(`Signed in as ${authenticatedUser.full_name || authenticatedUser.username}`);
   };
 
   const handleSignOut = () => {
-    addAuditEntry('SESSION_END', 'Console Logout', `User ${user?.username} signed out`);
     api.logout();
     setUser(null);
     setCurrentView('dashboard');
   };
 
-  const handleOpenCase = (c: MockCase) => {
-    setActiveCase(c);
+  const handleSelectRun = async (runId: string) => {
+    setActiveRunId(runId);
+    try {
+      const result = await api.getRunResult(runId);
+      setActiveRunResult(result);
+      const matchedClip = clips.find((c) => c.id === result.clip_id);
+      if (matchedClip) setActiveClip(matchedClip);
+    } catch {
+      if (DEMO_RUN_RESULTS[runId]) {
+        setActiveRunResult(DEMO_RUN_RESULTS[runId]);
+      }
+    }
     setCurrentView('inspector');
-    addAuditEntry('Inspection', `${c.caseId} / ${c.txnId}`, `Opened incident for forensic inspection`);
   };
 
-  const handleCycleStatus = (caseId: string) => {
-    setCases((prev) =>
-      prev.map((c) => {
-        if (c.caseId === caseId) {
-          const statuses: MockCase['status'][] = ['In Progress', 'Pending Review', 'Verified', 'Flagged', 'Archived'];
-          const idx = statuses.indexOf(c.status);
-          const nextStatus = statuses[idx !== -1 ? (idx + 1) % statuses.length : 0];
-          addAuditEntry('Status Update', `${c.caseId} / ${c.txnId}`, `Status changed to ${nextStatus}`);
-          return { ...c, status: nextStatus };
-        }
-        return c;
-      })
-    );
+  const handleSelectClip = (clip: ClipOut) => {
+    setActiveClip(clip);
+    // Find associated run or default to active
+    const matchedRun = runResults.find((r) => r.clip_id === clip.id);
+    if (matchedRun) {
+      setActiveRunId(matchedRun.run_id);
+      setActiveRunResult(matchedRun);
+    }
   };
 
-  const handleSaveActiveCase = (updatedCase?: MockCase) => {
-    const targetCase = updatedCase || activeCase;
-    setCases((prev) => prev.map((c) => (c.caseId === targetCase.caseId ? targetCase : c)));
-    setActiveCase(targetCase);
-    addAuditEntry('Save Case', `${targetCase.caseId} / ${targetCase.txnId}`, `Saved modified case state and parameters`);
-    showToast(`Saved ${targetCase.caseId} successfully.`);
-  };
-
-  const handleCaseCreated = (newCase: MockCase) => {
-    setCases((prev) => [newCase, ...prev]);
-    setActiveCase(newCase);
-    showToast(`New case indexed: ${newCase.caseId}`);
+  const handleRunCompleted = (runId: string, clip: ClipOut, result?: RunResult) => {
+    setClips((prev) => {
+      const exists = prev.some((c) => c.id === clip.id);
+      return exists ? prev : [clip, ...prev];
+    });
+    setActiveClip(clip);
+    setActiveRunId(runId);
+    if (result) {
+      setActiveRunResult(result);
+      setRunResults((prev) => [result, ...prev.filter((r) => r.run_id !== runId)]);
+    }
+    showToast(`New evidence dossier indexed: EV-${runId}`);
   };
 
   const handleRunFullDemo = async () => {
@@ -128,8 +143,10 @@ export const App: React.FC = () => {
     setCurrentView('ingest');
     await new Promise((r) => setTimeout(r, 1200));
 
-    setCurrentView('audit');
-    await new Promise((r) => setTimeout(r, 1200));
+    if (user?.role === 'admin') {
+      setCurrentView('audit');
+      await new Promise((r) => setTimeout(r, 1200));
+    }
 
     setCurrentView('inspector');
     showToast('Demo complete! Active on Case Inspector.');
@@ -192,45 +209,53 @@ export const App: React.FC = () => {
           user={user}
           currentView={currentView}
           onNavigate={setCurrentView}
-          activeCase={activeCase}
-          txnCount={cases.length}
-          auditCount={auditLogs.length}
+          activeEvidenceId={`EV-${activeRunId}`}
+          activeRunStatus="DONE"
+          isServedFromDemo={Boolean(activeRunResult?.served_from_demo_pack)}
+          clipCount={clips.length}
+          auditCount={DEMO_AUDIT_LOGS.length}
           onSignOut={handleSignOut}
-          onSaveCase={() => handleSaveActiveCase()}
+          onSaveEvidence={() => showToast(`Evidence state saved for EV-${activeRunId}`)}
           onRunFullDemo={handleRunFullDemo}
         >
           {currentView === 'dashboard' && (
             <DashboardView
-              cases={cases}
+              clips={clips}
+              runResults={runResults}
               publicConfig={publicConfig}
               onNavigate={setCurrentView}
-              onOpenCase={handleOpenCase}
-              onCycleStatus={handleCycleStatus}
+              onSelectRun={handleSelectRun}
               onOpenCapabilities={() => setCapabilitiesModalOpen(true)}
             />
           )}
 
           {currentView === 'transactions' && (
-            <TransactionsView cases={cases} onOpenCase={handleOpenCase} onNavigate={setCurrentView} />
+            <TransactionsView
+              clips={clips}
+              onSelectClip={handleSelectClip}
+              onNavigate={setCurrentView}
+            />
           )}
 
           {currentView === 'inspector' && (
             <CaseInspectorView
-              activeCase={activeCase}
-              onSaveCase={handleSaveActiveCase}
+              runResult={activeRunResult}
+              clip={activeClip}
+              publicConfig={publicConfig}
               onAuditAction={addAuditEntry}
+              onNavigate={setCurrentView}
             />
           )}
 
           {currentView === 'ingest' && (
             <IngestFootageView
-              onCaseCreated={handleCaseCreated}
-              onOpenCase={handleOpenCase}
+              onRunCompleted={handleRunCompleted}
               onAuditAction={addAuditEntry}
+              onNavigate={setCurrentView}
             />
           )}
 
-          {currentView === 'audit' && <AuditTrailView auditLogs={auditLogs} />}
+          {currentView === 'audit' && <AuditTrailView user={user} />}
         </AppShell>
       </div>
 

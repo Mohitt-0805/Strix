@@ -1,74 +1,56 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MockCase } from '@/lib/mockData';
-import { drawForensicFace } from '@/lib/forensicCanvas';
+import React, { useState } from 'react';
+import { ClipOut } from '@/types/forensic';
+import { api } from '@/lib/api';
 
 interface TransactionsViewProps {
-  cases: MockCase[];
-  onOpenCase: (caseObj: MockCase) => void;
+  clips: ClipOut[];
+  onSelectClip?: (clip: ClipOut) => void;
   onNavigate: (view: string) => void;
 }
 
-export const TransactionsView: React.FC<TransactionsViewProps> = ({ cases, onOpenCase, onNavigate }) => {
+export const TransactionsView: React.FC<TransactionsViewProps> = ({ clips, onSelectClip, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [minIqa, setMinIqa] = useState(0);
-  const [conditionFilter, setConditionFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [atmFilter, setAtmFilter] = useState('all');
+  const [copiedSha, setCopiedSha] = useState<string | null>(null);
 
-  const filteredCases = cases.filter((c) => {
+  const filteredClips = clips.filter((c) => {
     const q = searchTerm.toLowerCase();
     const matchesSearch =
-      c.caseId.toLowerCase().includes(q) ||
-      c.txnId.toLowerCase().includes(q) ||
-      c.atmId.toLowerCase().includes(q) ||
-      c.location.toLowerCase().includes(q) ||
-      c.cardLast4.includes(q);
+      c.original_filename.toLowerCase().includes(q) ||
+      (c.atm_id && c.atm_id.toLowerCase().includes(q)) ||
+      c.sha256.toLowerCase().includes(q) ||
+      (c.notes && c.notes.toLowerCase().includes(q));
 
-    const matchesIqa = c.quality >= minIqa;
-    const matchesCondition =
-      conditionFilter === 'all' || c.conditions.some((cond) => cond.toLowerCase().includes(conditionFilter.toLowerCase()));
-    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
-
-    return matchesSearch && matchesIqa && matchesCondition && matchesStatus;
+    const matchesAtm = atmFilter === 'all' || c.atm_id === atmFilter;
+    return matchesSearch && matchesAtm;
   });
 
-  const resetFilters = () => {
-    setSearchTerm('');
-    setMinIqa(0);
-    setConditionFilter('all');
-    setStatusFilter('all');
+  const handleCopySha = (sha: string) => {
+    navigator.clipboard.writeText(sha);
+    setCopiedSha(sha);
+    setTimeout(() => setCopiedSha(null), 2000);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Verified':
-        return 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder';
-      case 'Pending Review':
-        return 'bg-status-amberBg text-status-amber border-status-amberBorder';
-      case 'In Progress':
-        return 'bg-steel-tint text-steel border-steel-border';
-      default:
-        return 'bg-slate-100 text-slate-700 border-slate-200';
-    }
-  };
+  const atmList = Array.from(new Set(clips.map((c) => c.atm_id).filter(Boolean))) as string[];
 
   return (
     <section id="view-transactions" className="space-y-4 max-w-[1440px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">ATM Cash Withdrawal Transactions</h1>
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">ATM Surveillance Footage &amp; Clips</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Search indexed ATM CCTV facial extractions synchronized with cardholder withdrawal logs.
+            Indexed ATM CCTV video captures with SHA-256 integrity digests, terminal assignments, and container streams.
           </p>
         </div>
         <button
           onClick={() => onNavigate('ingest')}
-          className="px-3.5 py-1.5 text-xs font-semibold bg-steel hover:bg-steel-hover text-white rounded flex items-center gap-1.5 transition-colors self-start sm:self-auto"
+          className="px-3.5 py-1.5 text-xs font-semibold bg-steel hover:bg-steel-hover text-white rounded flex items-center gap-1.5 transition-colors self-start sm:self-auto shadow-sm"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          Ingest Footage
+          Ingest New Footage
         </button>
       </div>
 
@@ -90,92 +72,110 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ cases, onOpe
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search Transaction ID, Terminal ID, Card Last-4..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-canvas border border-hairline rounded text-slate-900 placeholder-slate-400 focus:outline-none focus:border-steel focus:bg-white"
+            placeholder="Search clip filename, Terminal ID, or SHA-256 hash..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-canvas border border-hairline rounded text-slate-900 placeholder-slate-400 focus:outline-none focus:border-steel focus:bg-white font-mono"
           />
         </div>
 
-        {/* Min IQA Slider (0-100) */}
-        <div className="flex items-center gap-2.5 px-3 py-1.5 bg-canvas border border-hairline rounded min-w-[200px]">
-          <span className="text-[11px] font-medium text-slate-600 whitespace-nowrap">Min IQA:</span>
-          <input
-            id="txnMinIqaSlider"
-            type="range"
-            min="0"
-            max="100"
-            value={minIqa}
-            onChange={(e) => setMinIqa(Number(e.target.value))}
-            className="forensic-slider w-24"
-          />
-          <span id="txnMinIqaVal" className="font-mono text-xs font-semibold text-steel tabular-nums w-6 text-right">
-            {minIqa}
-          </span>
-        </div>
-
-        {/* Environmental Condition Filter */}
+        {/* ATM Terminal Filter */}
         <select
-          id="txnConditionFilter"
-          value={conditionFilter}
-          onChange={(e) => setConditionFilter(e.target.value)}
+          value={atmFilter}
+          onChange={(e) => setAtmFilter(e.target.value)}
           className="px-2.5 py-1.5 text-xs bg-white border border-hairline rounded text-slate-700 focus:outline-none focus:border-steel"
         >
-          <option value="all">Condition: All</option>
-          <option value="Low-Light">Low-Light</option>
-          <option value="Partial Occlusion">Partial Occlusion</option>
-          <option value="Off-Angle">Off-Angle</option>
-          <option value="Motion Blur">Motion Blur</option>
-          <option value="Backlit">Backlit</option>
-          <option value="Clear">Clear</option>
+          <option value="all">Terminal: All ATMs</option>
+          {atmList.map((atm) => (
+            <option key={atm} value={atm}>
+              {atm}
+            </option>
+          ))}
         </select>
 
-        {/* Status Filter */}
-        <select
-          id="txnStatusFilter"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-2.5 py-1.5 text-xs bg-white border border-hairline rounded text-slate-700 focus:outline-none focus:border-steel"
-        >
-          <option value="all">Status: All</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Pending Review">Pending Review</option>
-          <option value="Verified">Verified</option>
-          <option value="Flagged">Flagged</option>
-          <option value="Archived">Archived</option>
-        </select>
-
-        <button
-          onClick={resetFilters}
-          className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
-        >
-          Reset
-        </button>
+        <span className="font-mono text-xs text-slate-500 tabular-nums">
+          {filteredClips.length} clips indexed
+        </span>
       </div>
 
-      {/* High-Density Transactions Table */}
+      {/* Clips Table */}
       <div className="bg-white border border-hairline rounded-md overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-canvas border-b border-hairline text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                <th className="py-2.5 px-4 w-14">Face</th>
-                <th className="py-2.5 px-4">Case & TXN ID</th>
-                <th className="py-2.5 px-4">Terminal & Camera</th>
-                <th className="py-2.5 px-4">Timestamp (IST)</th>
-                <th className="py-2.5 px-4">Withdrawal Amount</th>
-                <th className="py-2.5 px-4">Composite IQA</th>
-                <th className="py-2.5 px-4">Quality Conditions</th>
-                <th className="py-2.5 px-4">Status</th>
-                <th className="py-2.5 px-4 text-right">Action</th>
+                <th className="py-2.5 px-4 w-12">Stream</th>
+                <th className="py-2.5 px-4">Clip Filename</th>
+                <th className="py-2.5 px-4">Terminal</th>
+                <th className="py-2.5 px-4">Recording Start</th>
+                <th className="py-2.5 px-4">Format / Specs</th>
+                <th className="py-2.5 px-4">Duration</th>
+                <th className="py-2.5 px-4">SHA-256 Digest</th>
+                <th className="py-2.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody id="transactionsTableBody" className="divide-y divide-hairline text-xs">
-              {filteredCases.map((c) => (
-                <TransactionRow key={c.caseId} caseItem={c} onOpenCase={onOpenCase} getStatusBadge={getStatusBadge} />
+            <tbody className="divide-y divide-hairline text-xs font-mono">
+              {filteredClips.map((clip) => (
+                <tr key={clip.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-3 px-4">
+                    <div className="w-9 h-7 rounded bg-slate-900 flex items-center justify-center text-slate-400 overflow-hidden shrink-0">
+                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                      </svg>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 font-semibold text-slate-900">
+                    <div className="truncate max-w-[200px]" title={clip.original_filename}>
+                      {clip.original_filename}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-normal">
+                      {clip.notes || 'Forensic ATM review'}
+                    </div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[11px]">
+                      {clip.atm_id || 'ATM-JPR-014'}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-slate-600">
+                    {clip.clip_start_time ? clip.clip_start_time.replace('T', ' ').substring(0, 19) : '2026-11-26 21:14:00'}
+                  </td>
+                  <td className="py-3 px-4 text-slate-600">
+                    {clip.width}×{clip.height} @ {clip.fps || 25}fps
+                    <span className="text-[10px] text-slate-400 block">{clip.codec || 'H.264'} / {clip.container || 'mp4'}</span>
+                  </td>
+                  <td className="py-3 px-4 text-slate-700 tabular-nums">
+                    {clip.duration_sec ? `${clip.duration_sec.toFixed(1)}s` : '36.0s'}
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-500 font-mono truncate max-w-[120px]" title={clip.sha256}>
+                        {clip.sha256.substring(0, 12)}...
+                      </span>
+                      <button
+                        onClick={() => handleCopySha(clip.sha256)}
+                        className="text-slate-400 hover:text-steel text-[10px]"
+                        title="Copy SHA-256"
+                      >
+                        {copiedSha === clip.sha256 ? '✓' : 'Copy'}
+                      </button>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <button
+                      onClick={() => {
+                        if (onSelectClip) onSelectClip(clip);
+                        onNavigate('inspector');
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold bg-white border border-steel text-steel hover:bg-steel-tint rounded transition-colors"
+                    >
+                      Inspect
+                    </button>
+                  </td>
+                </tr>
               ))}
-              {filteredCases.length === 0 && (
+              {filteredClips.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400 font-mono text-xs">
-                    No transactions match the selected filters.
+                  <td colSpan={8} className="py-8 text-center text-xs text-slate-400 font-mono">
+                    No surveillance clips matched current filter criteria.
                   </td>
                 </tr>
               )}
@@ -184,100 +184,5 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({ cases, onOpe
         </div>
       </div>
     </section>
-  );
-};
-
-interface TransactionRowProps {
-  caseItem: MockCase;
-  onOpenCase: (caseObj: MockCase) => void;
-  getStatusBadge: (status: string) => string;
-}
-
-const TransactionRow: React.FC<TransactionRowProps> = ({ caseItem, onOpenCase, getStatusBadge }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    if (canvasRef.current && caseItem.candidates.length > 0) {
-      const cand = caseItem.candidates[caseItem.primaryCandidateIdx || 0];
-      drawForensicFace(canvasRef.current, caseItem.faceProfile, {
-        isRaw: false,
-        yaw: cand.yaw,
-        pitch: cand.pitch,
-        blur: cand.blur,
-        dark: cand.dark,
-        glare: cand.glare,
-        handOcc: cand.handOcc,
-      });
-    }
-  }, [caseItem]);
-
-  return (
-    <tr className="hover:bg-slate-50/80 transition-colors">
-      <td className="py-2.5 px-4">
-        <div className="w-10 h-10 rounded border border-hairline overflow-hidden bg-[#11161E] shrink-0">
-          <canvas ref={canvasRef} width={48} height={48} className="w-full h-full block" />
-        </div>
-      </td>
-      <td className="py-2.5 px-4">
-        <div className="font-mono font-semibold text-slate-900">{caseItem.caseId}</div>
-        <div className="font-mono text-[11px] text-steel">{caseItem.txnId}</div>
-        {caseItem.served_from_demo_pack && (
-          <span className="inline-block mt-1 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase">
-            precomputed demo result
-          </span>
-        )}
-      </td>
-      <td className="py-2.5 px-4">
-        <div className="font-mono font-medium text-slate-800">{caseItem.atmId}</div>
-        <div className="text-[11px] text-slate-500 truncate max-w-[180px]">{caseItem.camera}</div>
-      </td>
-      <td className="py-2.5 px-4 font-mono text-slate-600 whitespace-nowrap">{caseItem.timestamp}</td>
-      <td className="py-2.5 px-4">
-        <div className="font-mono font-semibold text-slate-900 tabular-nums">{caseItem.amount}</div>
-        <div className="font-mono text-[11px] text-slate-400">•••• {caseItem.cardLast4}</div>
-      </td>
-      <td className="py-2.5 px-4">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold text-slate-900 tabular-nums">{caseItem.quality}</span>
-          <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full ${
-                caseItem.quality >= 85
-                  ? 'bg-status-emerald'
-                  : caseItem.quality >= 70
-                  ? 'bg-status-amber'
-                  : 'bg-status-crimson'
-              }`}
-              style={{ width: `${caseItem.quality}%` }}
-            ></div>
-          </div>
-        </div>
-      </td>
-      <td className="py-2.5 px-4">
-        <div className="flex flex-wrap gap-1">
-          {caseItem.conditions.map((cond, idx) => (
-            <span
-              key={idx}
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200"
-            >
-              {cond}
-            </span>
-          ))}
-        </div>
-      </td>
-      <td className="py-2.5 px-4">
-        <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border ${getStatusBadge(caseItem.status)}`}>
-          {caseItem.status}
-        </span>
-      </td>
-      <td className="py-2.5 px-4 text-right">
-        <button
-          onClick={() => onOpenCase(caseItem)}
-          className="px-2.5 py-1 text-xs font-medium text-steel bg-steel-tint hover:bg-steel hover:text-white border border-steel-border rounded transition-colors"
-        >
-          Inspect Evidence
-        </button>
-      </td>
-    </tr>
   );
 };
