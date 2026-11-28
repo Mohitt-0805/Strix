@@ -3,6 +3,7 @@
 import logging
 import shutil
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -170,4 +171,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return application
 
 
-app = create_app()
+_CACHED_APP: FastAPI | None = None
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily construct and cache module-level `app` on first attribute access (PEP 562)."""
+    global _CACHED_APP
+    if name == "app":
+        if _CACHED_APP is None:
+            _CACHED_APP = create_app()
+        return _CACHED_APP
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

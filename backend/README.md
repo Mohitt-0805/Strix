@@ -133,6 +133,8 @@ python backend/scripts/seed_users.py
 
 ```bash
 uvicorn backend.app.main:app --reload --port 8000
+# Or via app factory:
+uvicorn backend.app.main:create_app --factory --reload --port 8000
 ```
 
 ### Sharing on a local network (frontend teammate on another machine)
@@ -152,10 +154,16 @@ uvicorn backend.app.main:app --reload --port 8000
 
 ## 6. Running Tests & Smoke Test
 
-Run the full pytest suite from the repository root:
+Run all commands from the **repository root**. Note that the root `pytest.ini` configures `testpaths` to `pipeline/tests`, so `backend/tests` must be passed explicitly to run the backend suite (no `.env` or `JWT_SECRET` environment variable is needed for backend tests):
 
 ```bash
+# Run only the backend tests:
 pytest backend/tests -q
+
+# Run only the pipeline tests:
+pytest pipeline/tests
+
+# Verify no forbidden ultralytics packages are installed:
 python scripts/check_no_ultralytics.py
 ```
 
