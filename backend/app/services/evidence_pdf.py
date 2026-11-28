@@ -58,6 +58,12 @@ def _ensure_unicode_font() -> str | None:
     return _UNICODE_FONT_NAME
 
 
+def _fmt_num(value: float) -> str:
+    """Format a float cleanly without trailing zeros or scientific notation."""
+    text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def _para(text: object, style: ParagraphStyle, unicode_style: ParagraphStyle) -> Paragraph:
     """Render XML-escaped text safely, switching to Unicode TTF if non-ASCII."""
     raw = "" if text is None else str(text)
@@ -346,6 +352,59 @@ def build_evidence_pdf(
     )
     story.append(meta_table)
     story.append(Spacer(1, 5 * mm))
+
+    req_fps = (
+        run.requested_sample_fps
+        if run.requested_sample_fps is not None
+        else raw_res.get("requested_sample_fps")
+    )
+    eff_fps = (
+        run.effective_sample_fps
+        if run.effective_sample_fps is not None
+        else raw_res.get("effective_sample_fps")
+    )
+    cov_start = (
+        run.coverage_start_sec
+        if run.coverage_start_sec is not None
+        else raw_res.get("coverage_start_sec")
+    )
+    cov_end = (
+        run.coverage_end_sec
+        if run.coverage_end_sec is not None
+        else raw_res.get("coverage_end_sec")
+    )
+    run_warnings = (
+        list(run.warnings)
+        if run.warnings is not None
+        else list(raw_res.get("warnings") or [])
+    )
+
+    sampling_line: str | None = None
+    if req_fps is not None and eff_fps is not None and cov_start is not None and cov_end is not None:
+        sampling_line = (
+            f"Sampling: requested {_fmt_num(req_fps)} fps, used {_fmt_num(eff_fps)} fps; "
+            f"coverage {_fmt_num(cov_start)} s to {_fmt_num(cov_end)} s of the clip"
+        )
+    elif req_fps is not None and eff_fps is not None:
+        sampling_line = f"Sampling: requested {_fmt_num(req_fps)} fps, used {_fmt_num(eff_fps)} fps"
+    elif cov_start is not None and cov_end is not None:
+        sampling_line = f"Coverage: {_fmt_num(cov_start)} s to {_fmt_num(cov_end)} s of the clip"
+
+    reduced_line = (
+        "Sampling was reduced; some brief appearances may be missed."
+        if req_fps is not None and eff_fps is not None and (float(eff_fps) + 1e-9 < float(req_fps))
+        else None
+    )
+
+    if sampling_line or reduced_line or run_warnings:
+        story.append(Paragraph("Sampling &amp; Pipeline Warnings", h2_style))
+        if sampling_line:
+            story.append(_para(sampling_line, body_style, body_unicode))
+        if reduced_line:
+            story.append(_para(reduced_line, warn_style, body_unicode))
+        for warning_text in run_warnings:
+            story.append(_para(f"Warning: {warning_text}", body_style, body_unicode))
+        story.append(Spacer(1, 4 * mm))
 
     selected_frames = [f for f in frames if f.selected]
     chosen_frames = selected_frames if selected_frames else frames

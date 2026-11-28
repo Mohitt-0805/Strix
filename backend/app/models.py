@@ -114,6 +114,11 @@ class Run(Base):
     pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     served_from_demo_pack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     link_low_margin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    requested_sample_fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    effective_sample_fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    coverage_start_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    coverage_end_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
@@ -183,6 +188,11 @@ class ClipIndex(Base):
     timings_ms: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
     pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     served_from_demo_pack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    requested_sample_fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    effective_sample_fps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    coverage_start_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
+    coverage_end_sec: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
     )

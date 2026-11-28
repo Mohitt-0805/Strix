@@ -194,6 +194,11 @@ class RunResultOut(BaseModel):
     selection_reason: str | None = None
     show_selection_reason: bool = False
     timings_ms: dict[str, float] | None = None
+    requested_sample_fps: float | None = None
+    effective_sample_fps: float | None = None
+    warnings: list[str] | None = None
+    coverage_start_sec: float | None = None
+    coverage_end_sec: float | None = None
 
 
 class RunStatusOut(BaseModel):
@@ -217,6 +222,11 @@ class RunStatusOut(BaseModel):
     pipeline_mode: Literal["fake", "real"]
     served_from_demo_pack: bool = False
     link_low_margin: bool = False
+    requested_sample_fps: float | None = None
+    effective_sample_fps: float | None = None
+    warnings: list[str] | None = None
+    coverage_start_sec: float | None = None
+    coverage_end_sec: float | None = None
     created_by: int
     created_at: datetime
     started_at: datetime | None = None
@@ -341,6 +351,11 @@ class IndexStatusOut(BaseModel):
     timings_ms: dict[str, float] | None = None
     pipeline_mode: Literal["fake", "real"]
     served_from_demo_pack: bool = False
+    requested_sample_fps: float | None = None
+    effective_sample_fps: float | None = None
+    warnings: list[str] | None = None
+    coverage_start_sec: float | None = None
+    coverage_end_sec: float | None = None
     created_by: int
     created_at: datetime
     started_at: datetime | None = None

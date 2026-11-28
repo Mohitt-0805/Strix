@@ -206,6 +206,44 @@ def _normalize_result_paths(
     return result.model_copy(update={"best_frames": norm_frames})
 
 
+def _extract_sampling_meta(
+    raw_result: Any, validated_result: PipelineResult | IndexResult
+) -> dict[str, Any]:
+    """Extract optional sampling rate, warnings, and coverage window fields."""
+    if isinstance(raw_result, dict):
+        req_fps = raw_result.get("requested_sample_fps")
+        eff_fps = raw_result.get("effective_sample_fps")
+        raw_warnings = raw_result.get("warnings")
+        cov_start = raw_result.get("coverage_start_sec")
+        cov_end = raw_result.get("coverage_end_sec")
+    else:
+        req_fps = getattr(validated_result, "requested_sample_fps", None)
+        eff_fps = getattr(validated_result, "effective_sample_fps", None)
+        raw_warnings = getattr(validated_result, "warnings", None)
+        cov_start = getattr(validated_result, "coverage_start_sec", None)
+        cov_end = getattr(validated_result, "coverage_end_sec", None)
+
+    warnings_val = (
+        [str(w) for w in raw_warnings if str(w).strip()]
+        if isinstance(raw_warnings, list)
+        else None
+    )
+    return {
+        "requested_sample_fps": float(req_fps) if req_fps is not None else None,
+        "effective_sample_fps": float(eff_fps) if eff_fps is not None else None,
+        "warnings": warnings_val,
+        "coverage_start_sec": float(cov_start) if cov_start is not None else None,
+        "coverage_end_sec": float(cov_end) if cov_end is not None else None,
+    }
+
+
+def _sanitize_raw_warnings(raw_result: Any) -> Any:
+    """Ensure dict raw_result with warnings=None passes Pydantic list[str] validation."""
+    if isinstance(raw_result, dict) and "warnings" in raw_result and raw_result["warnings"] is None:
+        return {**raw_result, "warnings": []}
+    return raw_result
+
+
 def _sync_pipeline_env(settings: Settings) -> None:
     """Propagate backend pipeline env settings to os.environ before importing adapter."""
     os.environ["USE_FAKE_PIPELINE"] = "1" if settings.use_fake_pipeline else "0"
@@ -261,8 +299,9 @@ def execute_pipeline_for_run(
     result = (
         raw_result
         if isinstance(raw_result, PipelineResult)
-        else PipelineResult.model_validate(raw_result)
+        else PipelineResult.model_validate(_sanitize_raw_warnings(raw_result))
     )
+    sampling_meta = _extract_sampling_meta(raw_result, result)
     served_from_demo_pack = bool(getattr(result, "served_from_demo_pack", False))
 
     if settings.use_fake_pipeline and not served_from_demo_pack:
@@ -278,12 +317,22 @@ def execute_pipeline_for_run(
     normalized = _normalize_result_paths(result, settings, dest_dir=out_dir_abs)
     result_dump = normalized.model_dump(mode="json")
     result_dump["served_from_demo_pack"] = served_from_demo_pack
+    result_dump["requested_sample_fps"] = sampling_meta["requested_sample_fps"]
+    result_dump["effective_sample_fps"] = sampling_meta["effective_sample_fps"]
+    result_dump["warnings"] = sampling_meta["warnings"]
+    result_dump["coverage_start_sec"] = sampling_meta["coverage_start_sec"]
+    result_dump["coverage_end_sec"] = sampling_meta["coverage_end_sec"]
     for idx, scores in enumerate(raw_flag_scores):
         if scores is not None and idx < len(result_dump.get("best_frames", [])):
             result_dump["best_frames"][idx]["flag_scores"] = scores
 
     run.served_from_demo_pack = served_from_demo_pack
     run.link_low_margin = bool(normalized.link_low_margin)
+    run.requested_sample_fps = sampling_meta["requested_sample_fps"]
+    run.effective_sample_fps = sampling_meta["effective_sample_fps"]
+    run.warnings = sampling_meta["warnings"]
+    run.coverage_start_sec = sampling_meta["coverage_start_sec"]
+    run.coverage_end_sec = sampling_meta["coverage_end_sec"]
     run.result_json = result_dump
     for idx, frame in enumerate(normalized.best_frames):
         frame_scores = raw_flag_scores[idx] if idx < len(raw_flag_scores) else None
@@ -371,8 +420,9 @@ def execute_index_for_job(
     result = (
         raw_result
         if isinstance(raw_result, IndexResult)
-        else IndexResult.model_validate(raw_result)
+        else IndexResult.model_validate(_sanitize_raw_warnings(raw_result))
     )
+    sampling_meta = _extract_sampling_meta(raw_result, result)
     served_from_demo_pack = bool(getattr(result, "served_from_demo_pack", False))
     seen_dests: dict[Path, Path] = {}
 
@@ -394,6 +444,11 @@ def execute_index_for_job(
     )
 
     index_job.served_from_demo_pack = served_from_demo_pack
+    index_job.requested_sample_fps = sampling_meta["requested_sample_fps"]
+    index_job.effective_sample_fps = sampling_meta["effective_sample_fps"]
+    index_job.warnings = sampling_meta["warnings"]
+    index_job.coverage_start_sec = sampling_meta["coverage_start_sec"]
+    index_job.coverage_end_sec = sampling_meta["coverage_end_sec"]
     index_job.npz_rel = npz_rel
     index_job.json_rel = json_rel
     index_job.total_embeddings = int(result.total_embeddings)

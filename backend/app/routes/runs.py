@@ -106,6 +106,31 @@ def build_run_result_out(
         selection_reason=raw.get("selection_reason"),
         show_selection_reason=show_sel,
         timings_ms=raw.get("timings_ms"),
+        requested_sample_fps=(
+            run.requested_sample_fps
+            if run.requested_sample_fps is not None
+            else raw.get("requested_sample_fps")
+        ),
+        effective_sample_fps=(
+            run.effective_sample_fps
+            if run.effective_sample_fps is not None
+            else raw.get("effective_sample_fps")
+        ),
+        warnings=(
+            list(run.warnings)
+            if run.warnings is not None
+            else raw.get("warnings")
+        ),
+        coverage_start_sec=(
+            run.coverage_start_sec
+            if run.coverage_start_sec is not None
+            else raw.get("coverage_start_sec")
+        ),
+        coverage_end_sec=(
+            run.coverage_end_sec
+            if run.coverage_end_sec is not None
+            else raw.get("coverage_end_sec")
+        ),
     )
 
 
@@ -141,6 +166,11 @@ def _run_to_status_out(
         pipeline_mode=run.pipeline_mode,
         served_from_demo_pack=bool(run.served_from_demo_pack),
         link_low_margin=bool(run.link_low_margin),
+        requested_sample_fps=run.requested_sample_fps,
+        effective_sample_fps=run.effective_sample_fps,
+        warnings=list(run.warnings) if run.warnings is not None else None,
+        coverage_start_sec=run.coverage_start_sec,
+        coverage_end_sec=run.coverage_end_sec,
         created_by=run.created_by,
         created_at=run.created_at,
         started_at=run.started_at,

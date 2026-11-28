@@ -2,7 +2,7 @@
 
 Base URL (local): `http://127.0.0.1:8000`
 
-> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A, Phase 6B, and Phase 9), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
+> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A, Phase 6B, Phase 9, and Phase 10), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
 
 ## Error Format
 
@@ -34,6 +34,8 @@ Every error response uses the uniform JSON shape:
   `GET /indexes/{index_id}` marks `short_track: true` tracks with `confidence_note: "low confidence (short track)"`. `POST /search` hides `short_track` faces by default (`include_short_tracks: false`); surface an optional toggle to include them with a low-confidence badge.
 - **`crop_box` coordinates:**
   `POST /runs/{run_id}/frames/{frame_id}/enhance` expects `crop_box: [x, y, w, h]` in **full-frame pixels** (`w, h >= 8` after clipping to image bounds) and `scale` of `2` or `4`. `face_box` on frames is `[x1, y1, x2, y2]` in full-frame pixels.
+- **Sampling rate, coverage window, and pipeline warnings (`warnings`, `coverage_start_sec`, `coverage_end_sec`):**
+  Completed runs (`GET /runs/{run_id}`, `GET /runs/{run_id}/result`) and index jobs (`GET /clips/{id}/indexes`, `GET /indexes/{index_id}`) include optional `requested_sample_fps`, `effective_sample_fps`, `warnings` (`list[str]` or `null`), `coverage_start_sec`, and `coverage_end_sec` (`null` on older records and in fake mode). Always display `warnings` visibly to the investigator, show the `coverage_start_sec`–`coverage_end_sec` clip range covered, and alert the user if `effective_sample_fps < requested_sample_fps`.
 - **Downloading the Evidence PDF:**
   `GET /runs/{run_id}/evidence.pdf?search_id=` requires the `Authorization: Bearer <token>` header. Fetch it with `fetch(..., { headers: { Authorization: ... } })` as a `Blob` (`response.blob()`) and trigger download or open via `URL.createObjectURL(blob)`—do not navigate a plain `<a>` link without auth headers.
 
@@ -513,6 +515,11 @@ curl -s http://127.0.0.1:8000/runs/1 -H "Authorization: Bearer $TOKEN"
   "pipeline_mode": "fake",
   "served_from_demo_pack": false,
   "link_low_margin": false,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null,
   "created_by": 2,
   "created_at": "2026-11-26T13:40:15.000000",
   "started_at": "2026-11-26T13:40:15.010000",
@@ -598,7 +605,12 @@ curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
   "link_low_margin": false,
   "selection_reason": null,
   "show_selection_reason": false,
-  "timings_ms": null
+  "timings_ms": null,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null
 }
 ```
 
@@ -725,6 +737,11 @@ curl -s http://127.0.0.1:8000/clips/$CLIP_ID/indexes -H "Authorization: Bearer $
     "timings_ms": {"frames": 1.0, "detect_persons": 1.0, "track": 1.0, "faces": 1.0, "quality": 1.0, "save": 1.0},
     "pipeline_mode": "fake",
     "served_from_demo_pack": false,
+    "requested_sample_fps": null,
+    "effective_sample_fps": null,
+    "warnings": [],
+    "coverage_start_sec": null,
+    "coverage_end_sec": null,
     "created_by": 2,
     "created_at": "2026-11-27T07:19:22.000000",
     "started_at": "2026-11-27T07:19:22.010000",
@@ -754,6 +771,11 @@ curl -s http://127.0.0.1:8000/indexes/1 -H "Authorization: Bearer $TOKEN"
   "progress": 1.0,
   "progress_message": "Done (fake)",
   "served_from_demo_pack": false,
+  "requested_sample_fps": null,
+  "effective_sample_fps": null,
+  "warnings": [],
+  "coverage_start_sec": null,
+  "coverage_end_sec": null,
   "total_embeddings": 5,
   "tracks": [
     {
