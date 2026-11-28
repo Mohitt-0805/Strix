@@ -1315,6 +1315,301 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
         )}
       </div>
 
+      {/* 7. Cross-Clip Face Search Leads & Compare View */}
+      {searchedFrame && (
+        <div id="sectionFaceSearch" className="bg-white border border-hairline rounded-md p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-hairline">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Cross-Clip Face Search Leads
+                </h3>
+                <span className="font-mono text-xs text-steel bg-steel-tint border border-steel-border px-2 py-0.5 rounded font-semibold">
+                  Query: Frame #{searchedFrame.frame_id}
+                </span>
+                {isSearching && (
+                  <span className="font-mono text-[11px] text-steel animate-pulse">
+                    Searching other ATM clips...
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cosine similarity matching across processed CCTV runs and indexed ATM recordings.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchedFrame(null);
+                setSearchResult(null);
+                setSelectedMatch(null);
+                setSearchError(null);
+              }}
+              className="px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-slate-900 border border-hairline hover:bg-slate-50 rounded transition-colors self-start sm:self-center"
+            >
+              Dismiss Search
+            </button>
+          </div>
+
+          {/* Search Notices from Backend (Rendered exactly as returned) */}
+          {searchResult && (
+            <div className="space-y-1.5">
+              {searchResult.notice && (
+                <div className="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+                  <span className="font-semibold text-amber-800">Notice:</span>
+                  <span>{searchResult.notice}</span>
+                </div>
+              )}
+              {searchResult.score_note && (
+                <div className="text-[11px] font-mono text-slate-500 pl-1">
+                  Note: {searchResult.score_note}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Search Error Notification */}
+          {searchError && (
+            <div className="p-3 rounded bg-red-50 border border-red-200 text-xs text-red-700 font-mono">
+              Error executing search: {searchError}
+            </div>
+          )}
+
+          {/* Side-by-Side Compare View: Query Face next to Selected Candidate */}
+          {selectedMatch && (
+            <div className="p-3.5 bg-canvas border border-hairline rounded-md space-y-3">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-800 border-b border-hairline pb-2">
+                <span>Side-by-Side Face Comparison</span>
+                <span className="font-mono text-[11px] text-slate-500 font-normal">
+                  Click any match below to inspect side-by-side
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Left: Query Face */}
+                <div className="bg-white border border-hairline rounded p-3 flex gap-3.5 items-center">
+                  <div className="w-20 h-20 bg-[#11161E] rounded overflow-hidden border border-hairline shrink-0 flex items-center justify-center">
+                    <img
+                      src={getMediaUrl(searchedFrame.crop_url || searchedFrame.frame_url)}
+                      alt="Query Face"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-1 text-xs">
+                    <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                      <span>Query Face</span>
+                      <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-steel-tint text-steel font-bold">
+                        Frame #{searchedFrame.frame_id}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 truncate font-mono">
+                      Clip: {clip?.original_filename || 'Source Video'}
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      Timestamp: {searchedFrame.timestamp_sec.toFixed(2)}s
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      Quality:{' '}
+                      {Math.round(
+                        searchedFrame.quality_score > 1
+                          ? searchedFrame.quality_score
+                          : searchedFrame.quality_score * 100
+                      )}
+                      /100
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Selected Candidate Match */}
+                <div className="bg-white border border-hairline rounded p-3 flex gap-3.5 items-center justify-between">
+                  <div className="flex gap-3.5 items-center min-w-0">
+                    <div className="w-20 h-20 bg-[#11161E] rounded overflow-hidden border border-hairline shrink-0 flex items-center justify-center">
+                      <img
+                        src={getMediaUrl(
+                          selectedMatch.crop_url ||
+                            selectedMatch.signed_crop_url ||
+                            selectedMatch.frame_url
+                        )}
+                        alt="Matched Candidate"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1 text-xs">
+                      <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                        <span>Possible match</span>
+                        {selectedMatch.short_track && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                            Low confidence
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="text-[11px] text-slate-600 truncate font-mono"
+                        title={selectedMatch.filename}
+                      >
+                        Clip: {selectedMatch.filename}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        Timestamp: {selectedMatch.timestamp_sec.toFixed(2)}s &bull; Score:{' '}
+                        {(selectedMatch.score * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        Source: {selectedMatch.source || 'index'} &bull;{' '}
+                        {selectedMatch.track_id != null
+                          ? `Track #${selectedMatch.track_id}`
+                          : 'Single frame'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 pl-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenClip(selectedMatch)}
+                      className="px-3 py-1.5 text-xs font-semibold bg-steel hover:bg-steel-hover text-white rounded transition-colors shadow-sm whitespace-nowrap"
+                    >
+                      Open that clip &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Ranked Matches Table */}
+          {searchResult && (
+            <div>
+              {searchResult.matches.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-500 font-mono bg-canvas border border-hairline rounded">
+                  No other clips matched
+                </div>
+              ) : (
+                <div className="border border-hairline rounded-md overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-canvas border-b border-hairline text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                          <th className="py-2.5 px-3 w-16">Preview</th>
+                          <th className="py-2.5 px-3">Candidate Status</th>
+                          <th className="py-2.5 px-3">Clip Filename</th>
+                          <th className="py-2.5 px-3">Time</th>
+                          <th className="py-2.5 px-3">Similarity</th>
+                          <th className="py-2.5 px-3">Reliability</th>
+                          <th className="py-2.5 px-3">Track / Source</th>
+                          <th className="py-2.5 px-3">Flags</th>
+                          <th className="py-2.5 px-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-hairline text-xs font-mono">
+                        {searchResult.matches.map((m, mIdx) => {
+                          const isMatchSelected =
+                            selectedMatch?.clip_id === m.clip_id &&
+                            selectedMatch?.frame_id === m.frame_id;
+                          const cropUrl = getMediaUrl(
+                            m.crop_url || m.signed_crop_url || m.frame_url
+                          );
+
+                          return (
+                            <tr
+                              key={mIdx}
+                              onClick={() => setSelectedMatch(m)}
+                              className={`cursor-pointer transition-colors ${
+                                isMatchSelected ? 'bg-steel-tint/50' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <td className="py-2.5 px-3">
+                                <div className="w-12 h-12 rounded bg-[#11161E] border border-hairline overflow-hidden flex items-center justify-center">
+                                  {cropUrl ? (
+                                    <img
+                                      src={cropUrl}
+                                      alt={m.filename}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="text-[9px] text-slate-500">No crop</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                                  <span>Possible match</span>
+                                </div>
+                                {m.short_track && (
+                                  <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                    Low confidence
+                                  </span>
+                                )}
+                              </td>
+                              <td
+                                className="py-2.5 px-3 text-slate-700 max-w-[180px] truncate"
+                                title={m.filename}
+                              >
+                                {m.filename}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                                {m.timestamp_sec.toFixed(2)}s
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="font-bold text-steel tabular-nums">
+                                  {(m.score * 100).toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded border uppercase font-semibold ${getReliabilityBadge(
+                                    m.reliability
+                                  )}`}
+                                >
+                                  {m.reliability || 'Unrated'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-500 text-[11px]">
+                                <div>{m.source ? `source: ${m.source}` : 'source: index'}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  {m.track_id != null ? `track #${m.track_id}` : '—'}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 max-w-[160px]">
+                                {m.flags && m.flags.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {m.flags.map((f, fIdx) => (
+                                      <span
+                                        key={fIdx}
+                                        className="text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200"
+                                      >
+                                        {f}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">none</span>
+                                )}
+                              </td>
+                              <td
+                                className="py-2.5 px-3 text-right"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenClip(m)}
+                                  className="px-2.5 py-1 text-xs font-semibold bg-white border border-steel text-steel hover:bg-steel-tint rounded transition-colors shadow-sm whitespace-nowrap"
+                                >
+                                  Open that clip
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ENHANCEMENT DIALOG MODAL */}
       {enhanceModalOpen && enhancingFrame && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
