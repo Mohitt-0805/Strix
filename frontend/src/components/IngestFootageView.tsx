@@ -37,7 +37,7 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
   const [currentStage, setCurrentStage] = useState<number>(0);
   const [stageName, setStageName] = useState<string>('idle');
   const [progressMsg, setProgressMsg] = useState<string>('');
-  const [errorDetails, setErrorDetails] = useState<{ code?: string; advice?: string } | null>(null);
+  const [errorDetails, setErrorDetails] = useState<{ code?: string; message?: string; advice?: string } | null>(null);
 
   // Completion
   const [completedClip, setCompletedClip] = useState<ClipOut | null>(null);
@@ -211,11 +211,13 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
           setIsProcessing(false);
           setErrorDetails({
             code: runStatus.error_code || 'PIPELINE_ERROR',
+            message: runStatus.error_message || runStatus.progress_message || 'Pipeline failed during execution',
             advice: runStatus.error_advice || 'Check clip dimensions, codec format, or transaction timestamp alignment.',
           });
           setConsoleLogs((prev) => [
             ...prev,
             `[ERROR] Pipeline failed with code: ${runStatus.error_code || 'UNKNOWN'}`,
+            `[MESSAGE] ${runStatus.error_message || 'Pipeline processing error'}`,
             `[ADVICE] ${runStatus.error_advice || 'Review transaction time window and try again.'}`,
           ]);
           break;
@@ -523,16 +525,21 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
 
       {/* Failure Notification */}
       {errorDetails && (
-        <div className="bg-status-crimsonBg border border-status-crimsonBorder rounded-md p-4 text-xs space-y-1">
+        <div className="bg-status-crimsonBg border border-status-crimsonBorder rounded-md p-4 text-xs space-y-1.5">
           <div className="font-semibold text-status-crimson flex items-center gap-1.5">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="12" y1="8" x2="12" y2="12"></line>
               <line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
-            <span>Error: {errorDetails.code}</span>
+            <span>Error Code: {errorDetails.code}</span>
           </div>
-          <p className="text-slate-700 pl-5">{errorDetails.advice}</p>
+          {errorDetails.message && (
+            <p className="text-slate-800 font-medium pl-5">{errorDetails.message}</p>
+          )}
+          {errorDetails.advice && (
+            <p className="text-slate-600 pl-5 text-[11px] font-mono">Advice: {errorDetails.advice}</p>
+          )}
         </div>
       )}
 

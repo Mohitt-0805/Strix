@@ -102,7 +102,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onLoginSuccess }) => {
                   PS04
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">ATM CCTV Suspect Face Forensics</p>
+              <p className="text-xs text-slate-500 mt-1">ATM CCTV Evidence Face Forensics</p>
             </div>
           </div>
 
