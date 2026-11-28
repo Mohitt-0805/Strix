@@ -1249,7 +1249,7 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
                     </div>
                   )}
 
-                  {/* Bottom Action Bar: "Select for Evidence" & "Enhance" Button */}
+                  {/* Bottom Action Bar: "Select for Evidence", "Search this face", & "Enhance" Button */}
                   <div
                     className="pt-2 border-t border-hairline flex flex-wrap items-center justify-between gap-2"
                     onClick={(e) => e.stopPropagation()}
@@ -1264,21 +1264,49 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
                       <span>Select for evidence</span>
                     </label>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEnhanceModal(frame)}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded flex items-center gap-1.5 transition-colors shadow-sm ${
-                        frameEnhancement
-                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                          : 'bg-steel hover:bg-steel-hover text-white'
-                      }`}
-                      title={frameEnhancement ? 'Inspect Enhanced Comparison' : 'Super-resolve crop'}
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-                      </svg>
-                      <span>{frameEnhancement ? 'Compare Enhanced' : 'Enhance'}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFaceSearch(frame)}
+                        disabled={isSearching && searchingFrameId === frame.frame_id}
+                        className="px-2.5 py-1 text-xs font-semibold bg-white border border-steel text-steel hover:bg-steel-tint rounded flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                        title="Search other clips for faces matching this frame"
+                      >
+                        {isSearching && searchingFrameId === frame.frame_id ? (
+                          <>
+                            <svg className="animate-spin w-3 h-3 text-steel" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                            </svg>
+                            <span>Searching...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="11" cy="11" r="8"></circle>
+                              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <span>Search this face</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEnhanceModal(frame)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded flex items-center gap-1.5 transition-colors shadow-sm ${
+                          frameEnhancement
+                            ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                            : 'bg-steel hover:bg-steel-hover text-white'
+                        }`}
+                        title={frameEnhancement ? 'Inspect Enhanced Comparison' : 'Super-resolve crop'}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
+                        <span>{frameEnhancement ? 'Compare Enhanced' : 'Enhance'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
