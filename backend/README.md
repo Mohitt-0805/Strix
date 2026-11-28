@@ -76,7 +76,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 | Key | Default | Description |
 |---|---|---|
-| `USE_FAKE_PIPELINE` | `1` | `1` runs the lightweight `pipeline.fake_pipeline` (no GPU/ML libs needed); `0` runs the real ML pipeline. |
+| `USE_FAKE_PIPELINE` | `1` | `1` runs the lightweight `pipeline.fake_pipeline` (no GPU/ML libs needed); `0` runs the real ML pipeline (or cached `DEMO_PACK_DIR` matches when set). |
+| `DEMO_PACK_DIR` | *(unset)* | Optional path to a pre-computed demo pack folder containing `manifest.json` (used when `USE_FAKE_PIPELINE=0`). Cached runs match on clip filename, `atm_id`, `tx_offset_sec` (`transaction_time - clip_start_time` rounded to 3 decimals), and `window_sec`; cached indexes match on clip filename. External demo-pack files are copied into `DATA_DIR/outputs/` and responses/PDFs explicitly label `served_from_demo_pack=true`. |
 | `DATA_DIR` | `./data` | Directory where `strix.db`, `uploads/`, and `outputs/` are stored (gitignored). |
 | `JWT_SECRET` | *(required)* | Secret used to sign Bearer JWTs and HMAC `/files` URLs. Must be at least 32 characters. |
 | `JWT_EXPIRE_MIN` | `480` | JWT expiration in minutes (default 8 hours). |
@@ -98,6 +99,14 @@ AUTO_INDEX_ON_UPLOAD=1
 MAX_UPLOAD_MB=500
 DISPLAY_TZ=Asia/Kolkata
 ```
+
+### Demo Pack Cached Mode (`DEMO_PACK_DIR`)
+
+When `USE_FAKE_PIPELINE=0` and `DEMO_PACK_DIR` points to a folder with a `manifest.json` (e.g. `DEMO_PACK_DIR=demo_pack`):
+
+- `GET /config/public` reports `demo_pack_enabled: true`.
+- Processing runs match the manifest on **exact clip filename**, **`atm_id`**, **`tx_offset_sec`** (`transaction_time - clip_start_time`, rounded to 3 decimals), and **`window_sec`** (falling back to live `run_pipeline` if any differs). Indexing matches on clip filename.
+- Returned external asset files are copied into `DATA_DIR/outputs/<clip_id>/run_<run_id>/` (or `index_<index_id>/`) keeping filenames, and runs/indexes/evidence PDFs label results with `served_from_demo_pack: true` and the notice `"RESULT SERVED FROM A PRE-COMPUTED DEMO PACK (not computed live for this upload)"`.
 
 ---
 

@@ -112,6 +112,7 @@ class Run(Base):
     tracker: Mapped[str] = mapped_column(String(32), nullable=False)
     atm_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    served_from_demo_pack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     link_low_margin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[int] = mapped_column(
@@ -145,9 +146,9 @@ class FrameRecord(Base):
     face_box: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     match_ready: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     rank_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    frame_path_rel: Mapped[str] = mapped_column(String(512), nullable=False)
+    frame_path_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
     crop_path_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    embedding_path_rel: Mapped[str] = mapped_column(String(512), nullable=False)
+    embedding_path_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
     enhanced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enhancement: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -181,6 +182,7 @@ class ClipIndex(Base):
     total_embeddings: Mapped[int | None] = mapped_column(Integer, nullable=True)
     timings_ms: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
     pipeline_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    served_from_demo_pack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
     )
@@ -229,7 +231,7 @@ class IndexFaceRecord(Base):
     face_box: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     crop_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
     frame_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    embedding_rel: Mapped[str] = mapped_column(String(512), nullable=False)
+    embedding_rel: Mapped[str | None] = mapped_column(String(512), nullable=True)
     short_track: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 

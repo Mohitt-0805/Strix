@@ -137,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_fake = cfg.use_fake_pipeline
         return {
             "pipeline_mode": cfg.pipeline_mode,
+            "demo_pack_enabled": cfg.demo_pack_enabled,
             "banner": FAKE_BANNER_TEXT if is_fake else None,
             "notice": HUMAN_VERIFICATION_NOTICE,
             "limits": {

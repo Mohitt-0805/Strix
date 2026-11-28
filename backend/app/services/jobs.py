@@ -206,6 +206,8 @@ class JobManager:
         )
         items: list[IndexItem] = []
         for row in frame_rows:
+            if not row.embedding_path_rel:
+                continue
             try:
                 emb_path = from_rel(
                     row.embedding_path_rel,
@@ -263,6 +265,8 @@ class JobManager:
         )
         items: list[IndexItem] = []
         for row in face_rows:
+            if not row.embedding_rel:
+                continue
             try:
                 emb_path = from_rel(
                     row.embedding_rel,

@@ -146,7 +146,10 @@ def test_zones_endpoint_and_zone_validation_rules(
     for valid_id in ids:
         assert valid_id in bad_proc.json()["detail"]
 
-    # When clip.zone_polygon_norm is set, gateway passes zone_polygon_norm and does NOT pass atm_id.
+    # When clip.zone_polygon_norm is set:
+    # - known atm_id IS still passed alongside zone_polygon_norm (polygon overrides in pipeline,
+    #   while demo_pack manifest matching needs atm_id),
+    # - unknown free-text atm_id is omitted so pipeline never raises ZONE_NOT_FOUND.
     poly = [[0.1, 0.1], [0.8, 0.1], [0.8, 0.9]]
     assert (
         client.patch(
@@ -160,6 +163,7 @@ def test_zones_endpoint_and_zone_validation_rules(
     captured_kwargs: dict = {}
 
     def _spy_run(**kwargs):
+        captured_kwargs.clear()
         captured_kwargs.update(kwargs)
         from pipeline.fake_pipeline import run as fake_run
 
@@ -180,6 +184,17 @@ def test_zones_endpoint_and_zone_validation_rules(
     )
     assert ok_proc.status_code == 202
     assert _poll(client, headers, ok_proc.json()["run_id"])["status"] == "done"
+    assert captured_kwargs.get("zone_polygon_norm") == poly
+    assert captured_kwargs.get("atm_id") == "atm_demo"
+
+    # Unknown free-text atm_id with polygon -> omitted from pipeline call.
+    ok_free = client.post(
+        f"/clips/{clip_id}/process",
+        headers=headers,
+        json={"transaction_time": "2026-11-26T15:30:02", "window_sec": 1, "atm_id": "custom_lobby_1"},
+    )
+    assert ok_free.status_code == 202
+    assert _poll(client, headers, ok_free.json()["run_id"])["status"] == "done"
     assert captured_kwargs.get("zone_polygon_norm") == poly
     assert "atm_id" not in captured_kwargs
 

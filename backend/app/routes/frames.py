@@ -133,6 +133,13 @@ def enhance_run_frame(
             detail=f"Frame '{frame_id}' not found in run {run_id}.",
         )
 
+    if not frame_row.frame_path_rel:
+        raise AppError(
+            status_code=404,
+            code="FRAME_IMAGE_MISSING",
+            detail="Frame full-frame image is missing or unavailable.",
+        )
+
     enh_dict, cached = enhance_frame_crop(
         frame_rel_path=frame_row.frame_path_rel,
         crop_box=payload.crop_box,

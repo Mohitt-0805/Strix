@@ -2,7 +2,7 @@
 
 Base URL (local): `http://127.0.0.1:8000`
 
-> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A and Phase 6B), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
+> **Development DB note:** In development, no SQLite schema migrations are maintained. Whenever the schema changes (including Phase 6A, Phase 6B, and Phase 9), delete `data/strix.db` (and any `data/strix.db-wal` / `data/strix.db-shm`) and re-run `backend/scripts/seed_users.py`.
 
 ## Error Format
 
@@ -21,8 +21,8 @@ Every error response uses the uniform JSON shape:
 
 - **Signed media URLs (`video_url`, `image_url`, `crop_url`, `enhanced_url`, `original_url`, `frame_url`):**
   Every media URL returned by the API is a **relative** path (`/files?p=...&uid=...&exp=...&sig=...`). Prefix it with the API base URL (e.g., `${API_BASE_URL}${frame.image_url}`) and pass it directly to `<img>` or `<video>` tags **without** any `Authorization` header (browsers do not send Bearer headers from media tags, and `/files` authenticates via the short-lived HMAC signature). Video supports HTTP `Range` seeking automatically. Missing image files return `null` URLs in search and index responses rather than breaking.
-- **`pipeline_mode` banner from `/config/public`:**
-  Fetch `GET /config/public` on app load. When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results.
+- **`pipeline_mode` and `demo_pack_enabled` from `/config/public`:**
+  Fetch `GET /config/public` on app load. When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results. When `DEMO_PACK_DIR` is set (`demo_pack_enabled: true`) and `USE_FAKE_PIPELINE=0`, matching runs (`clip_name`, `atm_id`, `tx_offset_sec` to 3 decimals, `window_sec`) and indexes (`clip_name`) are served from pre-computed cache and labelled `served_from_demo_pack: true` on `GET /runs/{id}`, `GET /runs/{id}/result`, `GET /clips/{id}/indexes`, `GET /indexes/{id}`, and on the exported Evidence PDF.
 - **Polling runs and index jobs:**
   - `POST /clips/{id}/process` returns `202` `{run_id, status}`. Poll `GET /runs/{run_id}` (e.g., every 500–1000 ms) until `status` is `"done"` or `"failed"`. Read `stage`, `progress` (`0.0–1.0` or `null`), and `progress_message` for live progress UI.
   - `POST /clips/{id}/index` (and automatic upload indexing when `AUTO_INDEX_ON_UPLOAD=1`) returns `202` `{index_id, status}`. Poll `GET /indexes/{index_id}` using the same `status`, `stage`, `progress`, and `progress_message` fields. Note that processing runs have queue priority `0` and preempt waiting index jobs (`1`).
@@ -76,6 +76,7 @@ curl -s http://127.0.0.1:8000/config/public
 ```json
 {
   "pipeline_mode": "fake",
+  "demo_pack_enabled": false,
   "banner": "FAKE PIPELINE, DEMO DATA",
   "notice": "Possible matches only. A human investigator must verify every result.",
   "limits": {
@@ -510,6 +511,7 @@ curl -s http://127.0.0.1:8000/runs/1 -H "Authorization: Bearer $TOKEN"
   "tracker": "iou",
   "atm_id": "atm_demo",
   "pipeline_mode": "fake",
+  "served_from_demo_pack": false,
   "link_low_margin": false,
   "created_by": 2,
   "created_at": "2026-11-26T13:40:15.000000",
@@ -562,6 +564,7 @@ curl -s http://127.0.0.1:8000/runs/1/result -H "Authorization: Bearer $TOKEN"
   "run_id": 1,
   "clip_id": "550e8400-e29b-41d4-a716-446655440000",
   "pipeline_mode": "fake",
+  "served_from_demo_pack": false,
   "banner": "FAKE PIPELINE, DEMO DATA",
   "notice": "Possible matches only. A human investigator must verify every result.",
   "video_url": "/files?p=uploads%2F...&uid=2&exp=...&sig=...",
@@ -721,6 +724,7 @@ curl -s http://127.0.0.1:8000/clips/$CLIP_ID/indexes -H "Authorization: Bearer $
     "total_embeddings": 5,
     "timings_ms": {"frames": 1.0, "detect_persons": 1.0, "track": 1.0, "faces": 1.0, "quality": 1.0, "save": 1.0},
     "pipeline_mode": "fake",
+    "served_from_demo_pack": false,
     "created_by": 2,
     "created_at": "2026-11-27T07:19:22.000000",
     "started_at": "2026-11-27T07:19:22.010000",
@@ -749,6 +753,7 @@ curl -s http://127.0.0.1:8000/indexes/1 -H "Authorization: Bearer $TOKEN"
   "stage": "done",
   "progress": 1.0,
   "progress_message": "Done (fake)",
+  "served_from_demo_pack": false,
   "total_embeddings": 5,
   "tracks": [
     {

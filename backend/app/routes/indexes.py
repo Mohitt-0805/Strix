@@ -24,34 +24,12 @@ from backend.app.schemas import (
     IndexTrackOut,
 )
 from backend.app.services.jobs import JobManager
-from backend.app.services.storage import from_rel
 from backend.app.services.zones import get_valid_zone_ids
-from backend.app.signing import make_signed_file_url
+from backend.app.signing import signed_url_if_exists
 
 router = APIRouter(tags=["indexes"])
 
 MAX_INDEX_RANGE_SEC = 600.0
-
-
-def _signed_url_if_exists(
-    rel_path: str | None,
-    user_id: int,
-    settings: Settings,
-) -> str | None:
-    """Return a signed /files URL if rel_path exists inside DATA_DIR, else None."""
-    if not rel_path:
-        return None
-    try:
-        abs_path = from_rel(
-            rel_path,
-            settings.resolved_data_dir,
-            allowed_roots=("outputs", "uploads"),
-        )
-    except Exception:
-        return None
-    if not abs_path.is_file():
-        return None
-    return make_signed_file_url(rel_path, user_id, settings)
 
 
 def enqueue_clip_index(
@@ -148,6 +126,7 @@ def _index_to_status_out(job: ClipIndex) -> IndexStatusOut:
         total_embeddings=job.total_embeddings,
         timings_ms=job.timings_ms,
         pipeline_mode=job.pipeline_mode,
+        served_from_demo_pack=bool(job.served_from_demo_pack),
         created_by=job.created_by,
         created_at=job.created_at,
         started_at=job.started_at,
@@ -261,8 +240,8 @@ def get_clip_index_detail(
                 flag_scores=row.flag_scores,
                 face_box=row.face_box,
                 short_track=row.short_track,
-                crop_url=_signed_url_if_exists(row.crop_rel, current_user.id, settings),
-                frame_url=_signed_url_if_exists(row.frame_rel, current_user.id, settings),
+                crop_url=signed_url_if_exists(row.crop_rel, current_user.id, settings),
+                frame_url=signed_url_if_exists(row.frame_rel, current_user.id, settings),
             )
         )
 

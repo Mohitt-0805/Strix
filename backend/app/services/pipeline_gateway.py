@@ -1,13 +1,17 @@
 """Gateway adapting pipeline.adapter run() and index_clip() safely."""
 
 import inspect
+import logging
 import os
+import shutil
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from backend.app.config import Settings
+from backend.app.errors import AppError
 from backend.app.models import (
     Clip,
     ClipIndex,
@@ -18,7 +22,12 @@ from backend.app.models import (
 )
 from backend.app.services.fake_assets import materialize_fake_assets
 from backend.app.services.storage import from_rel, to_rel
+from backend.app.services.zones import get_valid_zone_ids
 from pipeline.contract import IndexResult, PipelineResult
+
+logger = logging.getLogger(__name__)
+
+_INTERNAL_REL_PREFIXES = ("outputs/", "data/outputs/", "uploads/", "data/uploads/")
 
 
 def _extract_flag_scores_list(raw_items: Any) -> list[dict[str, float] | None]:
@@ -70,29 +79,138 @@ def _build_supported_kwargs(
     return filtered
 
 
-def _normalize_result_paths(result: PipelineResult, settings: Settings) -> PipelineResult:
-    """Convert all file paths inside PipelineResult to DATA_DIR-relative forward slashes."""
+def _ingest_asset_path(
+    raw_path: str | None,
+    *,
+    dest_dir: Path,
+    data_root: Path,
+    label: str,
+    prefix: str = "",
+    seen_dests: dict[Path, Path] | None = None,
+) -> str | None:
+    """Normalise an asset path to DATA_DIR-relative, copying external files into dest_dir."""
+    if not raw_path or not str(raw_path).strip():
+        return None
+    raw = str(raw_path).strip().replace("\\", "/")
+    p = Path(raw)
+    resolved_root = data_root.resolve()
+    external_src: Path | None = None
+
+    if p.is_absolute():
+        resolved_p = p.resolve()
+        if resolved_p != resolved_root and resolved_p.is_relative_to(resolved_root):
+            return to_rel(resolved_p, data_root)
+        external_src = resolved_p
+    else:
+        if ".." in p.parts:
+            raise AppError(
+                status_code=403,
+                code="INVALID_PATH",
+                detail="Path traversal ('..') is not allowed.",
+            )
+        cwd_cand = (Path.cwd() / p).resolve()
+        if cwd_cand.exists() and not cwd_cand.is_relative_to(resolved_root):
+            external_src = cwd_cand
+        elif raw.startswith(_INTERNAL_REL_PREFIXES) or (resolved_root / p).resolve().exists():
+            return to_rel(raw, data_root)
+        else:
+            external_src = cwd_cand
+
+    if not external_src.is_file():
+        logger.warning(
+            "Missing external asset for %s at '%s'; storing null path.",
+            label,
+            external_src,
+        )
+        return None
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = (dest_dir / external_src.name).resolve()
+    if seen_dests is not None:
+        existing_src = seen_dests.get(dest_path)
+        if existing_src is not None and existing_src != external_src:
+            safe_prefix = f"{prefix}_" if prefix else "ext_"
+            dest_path = (dest_dir / f"{safe_prefix}{external_src.name}").resolve()
+        seen_dests[dest_path] = external_src
+
+    if external_src != dest_path:
+        shutil.copy2(external_src, dest_path)
+    return to_rel(dest_path, data_root)
+
+
+def _known_atm_id(primary_atm_id: str | None, clip_atm_id: str | None) -> str | None:
+    """Return atm_id iff it exists in pipeline/config/atm_zone.json, else None."""
+    raw = (primary_atm_id if primary_atm_id is not None else clip_atm_id or "").strip()
+    if not raw:
+        return None
+    return raw if raw in set(get_valid_zone_ids()) else None
+
+
+def _normalize_result_paths(
+    result: PipelineResult,
+    settings: Settings,
+    *,
+    dest_dir: Path,
+) -> PipelineResult:
+    """Copy any external assets into dest_dir and convert paths to DATA_DIR-relative."""
     data_root = settings.resolved_data_dir
+    seen_dests: dict[Path, Path] = {}
     norm_frames = []
     for frame in result.best_frames:
+        fid = str(frame.frame_id)
+        frame_rel = _ingest_asset_path(
+            frame.frame_path,
+            dest_dir=dest_dir,
+            data_root=data_root,
+            label=f"frame {fid}",
+            prefix=f"frame_{fid}",
+            seen_dests=seen_dests,
+        )
+        crop_rel = _ingest_asset_path(
+            frame.crop_path,
+            dest_dir=dest_dir,
+            data_root=data_root,
+            label=f"crop {fid}",
+            prefix=f"crop_{fid}",
+            seen_dests=seen_dests,
+        )
+        emb_rel = _ingest_asset_path(
+            frame.embedding_path,
+            dest_dir=dest_dir,
+            data_root=data_root,
+            label=f"embedding {fid}",
+            prefix=f"emb_{fid}",
+            seen_dests=seen_dests,
+        )
         enh = frame.enhancement
         if enh is not None and enh.enhanced_path:
-            enh = enh.model_copy(
-                update={"enhanced_path": to_rel(enh.enhanced_path, data_root)}
+            enh_rel = _ingest_asset_path(
+                enh.enhanced_path,
+                dest_dir=dest_dir,
+                data_root=data_root,
+                label=f"enhanced {fid}",
+                prefix=f"enh_{fid}",
+                seen_dests=seen_dests,
             )
+            enh = enh.model_copy(update={"enhanced_path": enh_rel})
         norm_frames.append(
             frame.model_copy(
                 update={
-                    "frame_path": to_rel(frame.frame_path, data_root),
-                    "crop_path": (
-                        to_rel(frame.crop_path, data_root) if frame.crop_path else None
-                    ),
-                    "embedding_path": to_rel(frame.embedding_path, data_root),
+                    "frame_path": frame_rel,
+                    "crop_path": crop_rel,
+                    "embedding_path": emb_rel,
                     "enhancement": enh,
                 }
             )
         )
     return result.model_copy(update={"best_frames": norm_frames})
+
+
+def _sync_pipeline_env(settings: Settings) -> None:
+    """Propagate backend pipeline env settings to os.environ before importing adapter."""
+    os.environ["USE_FAKE_PIPELINE"] = "1" if settings.use_fake_pipeline else "0"
+    if settings.demo_pack_dir is not None:
+        os.environ["DEMO_PACK_DIR"] = settings.demo_pack_dir.strip()
 
 
 def execute_pipeline_for_run(
@@ -103,8 +221,8 @@ def execute_pipeline_for_run(
     settings: Settings,
     progress_cb: Callable[[Any], None] | None = None,
 ) -> PipelineResult:
-    """Invoke pipeline.adapter.get_run(), normalize outputs, and persist frame rows."""
-    os.environ["USE_FAKE_PIPELINE"] = "1" if settings.use_fake_pipeline else "0"
+    """Invoke pipeline.adapter.get_run(), ingest outputs, and persist frame rows."""
+    _sync_pipeline_env(settings)
     from pipeline.adapter import get_run
 
     run_fn = get_run()
@@ -113,9 +231,10 @@ def execute_pipeline_for_run(
     out_dir_abs = (data_root / "outputs" / clip.id / f"run_{run.id}").resolve()
     out_dir_abs.mkdir(parents=True, exist_ok=True)
 
+    known_atm = _known_atm_id(run.atm_id, clip.atm_id)
     candidate_kwargs: dict[str, Any] = {
         "clip_path": str(clip_abs_path),
-        "tx_offset_sec": run.tx_offset_sec,
+        "tx_offset_sec": round(float(run.tx_offset_sec), 3),
         "window_sec": run.window_sec,
         "transaction_time": run.transaction_time.isoformat(),
         "sample_fps": run.sample_fps,
@@ -125,8 +244,8 @@ def execute_pipeline_for_run(
     }
     if clip.zone_polygon_norm is not None:
         candidate_kwargs["zone_polygon_norm"] = clip.zone_polygon_norm
-    else:
-        candidate_kwargs["atm_id"] = run.atm_id or ""
+    if known_atm is not None:
+        candidate_kwargs["atm_id"] = known_atm
 
     call_kwargs = _build_supported_kwargs(
         run_fn, candidate_kwargs, ("clip_path", "tx_offset_sec", "window_sec")
@@ -144,8 +263,9 @@ def execute_pipeline_for_run(
         if isinstance(raw_result, PipelineResult)
         else PipelineResult.model_validate(raw_result)
     )
+    served_from_demo_pack = bool(getattr(result, "served_from_demo_pack", False))
 
-    if settings.use_fake_pipeline:
+    if settings.use_fake_pipeline and not served_from_demo_pack:
         result = materialize_fake_assets(
             result,
             clip_id=clip.id,
@@ -155,12 +275,14 @@ def execute_pipeline_for_run(
             embed_dim=settings.embed_dim,
         )
 
-    normalized = _normalize_result_paths(result, settings)
+    normalized = _normalize_result_paths(result, settings, dest_dir=out_dir_abs)
     result_dump = normalized.model_dump(mode="json")
+    result_dump["served_from_demo_pack"] = served_from_demo_pack
     for idx, scores in enumerate(raw_flag_scores):
         if scores is not None and idx < len(result_dump.get("best_frames", [])):
             result_dump["best_frames"][idx]["flag_scores"] = scores
 
+    run.served_from_demo_pack = served_from_demo_pack
     run.link_low_margin = bool(normalized.link_low_margin)
     run.result_json = result_dump
     for idx, frame in enumerate(normalized.best_frames):
@@ -202,8 +324,8 @@ def execute_index_for_job(
     settings: Settings,
     progress_cb: Callable[[Any], None] | None = None,
 ) -> IndexResult:
-    """Invoke pipeline.adapter.get_index_clip(), normalise paths, and persist track/face rows."""
-    os.environ["USE_FAKE_PIPELINE"] = "1" if settings.use_fake_pipeline else "0"
+    """Invoke pipeline.adapter.get_index_clip(), ingest assets, and persist track/face rows."""
+    _sync_pipeline_env(settings)
     from pipeline.adapter import get_index_clip
 
     index_fn = get_index_clip()
@@ -212,6 +334,7 @@ def execute_index_for_job(
     out_dir_abs = (data_root / "outputs" / clip.id / f"index_{index_job.id}").resolve()
     out_dir_abs.mkdir(parents=True, exist_ok=True)
 
+    known_atm = _known_atm_id(index_job.atm_id, clip.atm_id)
     candidate_kwargs: dict[str, Any] = {
         "clip_path": str(clip_abs_path),
         "start_sec": index_job.start_sec,
@@ -224,8 +347,8 @@ def execute_index_for_job(
     }
     if clip.zone_polygon_norm is not None:
         candidate_kwargs["zone_polygon_norm"] = clip.zone_polygon_norm
-    elif index_job.atm_id:
-        candidate_kwargs["atm_id"] = index_job.atm_id
+    if known_atm is not None:
+        candidate_kwargs["atm_id"] = known_atm
 
     call_kwargs = _build_supported_kwargs(index_fn, candidate_kwargs, ("clip_path",))
     raw_result = index_fn(**call_kwargs)
@@ -250,16 +373,33 @@ def execute_index_for_job(
         if isinstance(raw_result, IndexResult)
         else IndexResult.model_validate(raw_result)
     )
+    served_from_demo_pack = bool(getattr(result, "served_from_demo_pack", False))
+    seen_dests: dict[Path, Path] = {}
 
-    index_job.npz_rel = (
-        to_rel(result.index_npz_path, data_root) if result.index_npz_path else None
+    npz_rel = _ingest_asset_path(
+        result.index_npz_path,
+        dest_dir=out_dir_abs,
+        data_root=data_root,
+        label=f"index {index_job.id} npz",
+        prefix="idx",
+        seen_dests=seen_dests,
     )
-    index_job.json_rel = (
-        to_rel(result.index_json_path, data_root) if result.index_json_path else None
+    json_rel = _ingest_asset_path(
+        result.index_json_path,
+        dest_dir=out_dir_abs,
+        data_root=data_root,
+        label=f"index {index_job.id} json",
+        prefix="idx",
+        seen_dests=seen_dests,
     )
+
+    index_job.served_from_demo_pack = served_from_demo_pack
+    index_job.npz_rel = npz_rel
+    index_job.json_rel = json_rel
     index_job.total_embeddings = int(result.total_embeddings)
     index_job.timings_ms = dict(result.timings_ms) if result.timings_ms is not None else None
 
+    normalized_tracks = []
     for t_idx, track in enumerate(result.tracks):
         db.add(
             IndexTrackRecord(
@@ -275,8 +415,34 @@ def execute_index_for_job(
             )
         )
         track_scores = raw_scores_by_track[t_idx] if t_idx < len(raw_scores_by_track) else []
+        norm_faces = []
         for f_idx, face in enumerate(track.faces):
             f_scores = track_scores[f_idx] if f_idx < len(track_scores) else None
+            tag = f"t{track.track_id}_f{f_idx}"
+            crop_rel = _ingest_asset_path(
+                face.crop_path,
+                dest_dir=out_dir_abs,
+                data_root=data_root,
+                label=f"index {index_job.id} {tag} crop",
+                prefix=f"crop_{tag}",
+                seen_dests=seen_dests,
+            )
+            frame_rel = _ingest_asset_path(
+                face.frame_path,
+                dest_dir=out_dir_abs,
+                data_root=data_root,
+                label=f"index {index_job.id} {tag} frame",
+                prefix=f"frame_{tag}",
+                seen_dests=seen_dests,
+            )
+            emb_rel = _ingest_asset_path(
+                face.embedding_path,
+                dest_dir=out_dir_abs,
+                data_root=data_root,
+                label=f"index {index_job.id} {tag} embedding",
+                prefix=f"emb_{tag}",
+                seen_dests=seen_dests,
+            )
             db.add(
                 IndexFaceRecord(
                     index_id=index_job.id,
@@ -288,12 +454,29 @@ def execute_index_for_job(
                     flags=list(face.flags),
                     flag_scores=f_scores,
                     face_box=[float(v) for v in face.face_box] if face.face_box is not None else None,
-                    crop_rel=to_rel(face.crop_path, data_root) if face.crop_path else None,
-                    frame_rel=to_rel(face.frame_path, data_root) if face.frame_path else None,
-                    embedding_rel=to_rel(face.embedding_path, data_root),
+                    crop_rel=crop_rel,
+                    frame_rel=frame_rel,
+                    embedding_rel=emb_rel,
                     short_track=bool(track.short_track),
                 )
             )
+            norm_faces.append(
+                face.model_copy(
+                    update={
+                        "crop_path": crop_rel,
+                        "frame_path": frame_rel,
+                        "embedding_path": emb_rel,
+                    }
+                )
+            )
+        normalized_tracks.append(track.model_copy(update={"faces": norm_faces}))
 
     db.commit()
-    return result
+    return result.model_copy(
+        update={
+            "tracks": normalized_tracks,
+            "index_npz_path": npz_rel,
+            "index_json_path": json_rel,
+            "served_from_demo_pack": served_from_demo_pack,
+        }
+    )

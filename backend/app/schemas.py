@@ -155,9 +155,9 @@ class FrameOut(BaseModel):
     """Candidate evidence frame hydrated with signed URLs."""
 
     frame_id: str
-    frame_path: str
+    frame_path: str | None = None
     crop_path: str | None = None
-    embedding_path: str
+    embedding_path: str | None = None
     timestamp_sec: float
     quality_score: float
     reliability: Literal["High", "Medium", "Low"]
@@ -170,7 +170,7 @@ class FrameOut(BaseModel):
     match_ready: bool | None = None
     rank_reason: str | None = None
     selected: bool = False
-    image_url: str
+    image_url: str | None = None
     crop_url: str | None = None
     enhanced_url: str | None = None
 
@@ -181,6 +181,7 @@ class RunResultOut(BaseModel):
     run_id: int
     clip_id: str
     pipeline_mode: Literal["fake", "real"]
+    served_from_demo_pack: bool = False
     banner: str | None = None
     notice: str
     video_url: str
@@ -214,6 +215,7 @@ class RunStatusOut(BaseModel):
     tracker: str
     atm_id: str | None = None
     pipeline_mode: Literal["fake", "real"]
+    served_from_demo_pack: bool = False
     link_low_margin: bool = False
     created_by: int
     created_at: datetime
@@ -338,6 +340,7 @@ class IndexStatusOut(BaseModel):
     total_embeddings: int | None = None
     timings_ms: dict[str, float] | None = None
     pipeline_mode: Literal["fake", "real"]
+    served_from_demo_pack: bool = False
     created_by: int
     created_at: datetime
     started_at: datetime | None = None

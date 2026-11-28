@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from backend.app.config import Settings
 from backend.app.errors import AppError
+from backend.app.services.storage import from_rel
 
 
 def compute_file_signature(rel_path: str, uid: int, exp: int, secret: str) -> str:
@@ -61,3 +62,24 @@ def verify_signed_file_params(
             code="INVALID_SIGNATURE",
             detail="Invalid signed file URL signature.",
         )
+
+
+def signed_url_if_exists(
+    rel_path: str | None,
+    user_id: int,
+    settings: Settings,
+) -> str | None:
+    """Return a signed /files URL if rel_path exists inside DATA_DIR, else None."""
+    if not rel_path:
+        return None
+    try:
+        abs_path = from_rel(
+            rel_path,
+            settings.resolved_data_dir,
+            allowed_roots=("outputs", "uploads"),
+        )
+    except Exception:
+        return None
+    if not abs_path.is_file():
+        return None
+    return make_signed_file_url(rel_path, user_id, settings)

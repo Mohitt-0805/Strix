@@ -232,6 +232,33 @@ def build_evidence_pdf(
         story.append(warn_tbl)
         story.append(Spacer(1, 4 * mm))
 
+    if run.served_from_demo_pack:
+        demo_tbl = Table(
+            [
+                [
+                    Paragraph(
+                        "RESULT SERVED FROM A PRE-COMPUTED DEMO PACK "
+                        "(not computed live for this upload)",
+                        warn_style,
+                    )
+                ]
+            ],
+            colWidths=[180 * mm],
+        )
+        demo_tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF3C7")),
+                    ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#D97706")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(demo_tbl)
+        story.append(Spacer(1, 3 * mm))
+
     if run.link_low_margin:
         margin_tbl = Table(
             [
@@ -291,6 +318,7 @@ def build_evidence_pdf(
         ("Link Low Margin", str(bool(run.link_low_margin))),
         ("Selection Reason", raw_res.get("selection_reason") or "N/A"),
         ("Pipeline Mode", run.pipeline_mode),
+        ("Served From Demo Pack", str(bool(run.served_from_demo_pack))),
         ("Model Labels", " | ".join(model_labels)),
     ]
     meta_table = Table(

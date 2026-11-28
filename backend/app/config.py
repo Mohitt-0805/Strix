@@ -1,6 +1,7 @@
 """Application configuration loaded from the repo-root .env file."""
 
 import json
+import os
 from pathlib import Path
 
 from pydantic import Field, field_validator
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
 
     use_fake_pipeline: bool = Field(default=True, alias="USE_FAKE_PIPELINE")
     auto_index_on_upload: bool = Field(default=True, alias="AUTO_INDEX_ON_UPLOAD")
+    demo_pack_dir: str | None = Field(default=None, alias="DEMO_PACK_DIR")
     data_dir: Path = Field(default=Path("./data"), alias="DATA_DIR")
     jwt_secret: str = Field(..., alias="JWT_SECRET")
     jwt_expire_min: int = Field(default=480, ge=1, alias="JWT_EXPIRE_MIN")
@@ -83,6 +85,16 @@ class Settings(BaseSettings):
     def pipeline_mode(self) -> str:
         """Return 'fake' or 'real' matching USE_FAKE_PIPELINE."""
         return "fake" if self.use_fake_pipeline else "real"
+
+    @property
+    def demo_pack_enabled(self) -> bool:
+        """Return True when DEMO_PACK_DIR is configured as a non-empty string."""
+        raw = (
+            self.demo_pack_dir
+            if self.demo_pack_dir is not None
+            else os.environ.get("DEMO_PACK_DIR", "")
+        )
+        return bool(raw.strip())
 
     @property
     def cors_origins_list(self) -> list[str]:

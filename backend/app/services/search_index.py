@@ -321,6 +321,8 @@ class SearchIndex:
         ).all()
 
         for frame_row, run_row, clip_row in run_rows:
+            if not frame_row.embedding_path_rel:
+                continue
             try:
                 emb_path = from_rel(
                     frame_row.embedding_path_rel,
@@ -369,6 +371,8 @@ class SearchIndex:
         ).all()
 
         for face_row, idx_row, clip_row in idx_rows:
+            if not face_row.embedding_rel:
+                continue
             try:
                 emb_path = from_rel(
                     face_row.embedding_rel,

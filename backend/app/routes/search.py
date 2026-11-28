@@ -10,10 +10,10 @@ from backend.app.db import get_db
 from backend.app.deps import get_app_settings, get_client_ip, get_current_user
 from backend.app.errors import AppError
 from backend.app.models import FrameRecord, Run, Search, User
-from backend.app.routes.indexes import _signed_url_if_exists
 from backend.app.schemas import SearchMatchOut, SearchRequest, SearchResponse
 from backend.app.services.search_index import SearchIndex, load_and_normalize_embedding
 from backend.app.services.storage import from_rel
+from backend.app.signing import signed_url_if_exists
 
 router = APIRouter(tags=["search"])
 
@@ -47,8 +47,8 @@ def _hydrate_matches(
                 reliability=item["reliability"],
                 flags=list(item.get("flags") or []),
                 flag_scores=item.get("flag_scores"),
-                crop_url=_signed_url_if_exists(crop_rel, user_id, settings),
-                frame_url=_signed_url_if_exists(frame_rel, user_id, settings),
+                crop_url=signed_url_if_exists(crop_rel, user_id, settings),
+                frame_url=signed_url_if_exists(frame_rel, user_id, settings),
             )
         )
     return out
@@ -91,6 +91,13 @@ def search_similar_faces(
             status_code=404,
             code="FRAME_NOT_FOUND",
             detail=f"Frame '{frame_id_text}' not found in run {run.id}.",
+        )
+
+    if not frame_row.embedding_path_rel:
+        raise AppError(
+            status_code=422,
+            code="INVALID_EMBEDDING",
+            detail="Query frame embedding is missing, corrupt, or wrong dimension.",
         )
 
     emb_path = from_rel(

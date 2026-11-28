@@ -21,7 +21,7 @@ from backend.app.schemas import (
 )
 from backend.app.services.jobs import JobManager
 from backend.app.services.zones import get_valid_zone_ids
-from backend.app.signing import make_signed_file_url
+from backend.app.signing import make_signed_file_url, signed_url_if_exists
 
 router = APIRouter(tags=["runs"])
 
@@ -58,7 +58,7 @@ def build_run_result_out(
     for row in frame_rows:
         enh = row.enhancement
         enhanced_url = (
-            make_signed_file_url(enh["enhanced_path"], user_id, settings)
+            signed_url_if_exists(enh["enhanced_path"], user_id, settings)
             if enh and enh.get("enhanced_path")
             else None
         )
@@ -80,12 +80,8 @@ def build_run_result_out(
                 match_ready=row.match_ready,
                 rank_reason=row.rank_reason,
                 selected=row.selected,
-                image_url=make_signed_file_url(row.frame_path_rel, user_id, settings),
-                crop_url=(
-                    make_signed_file_url(row.crop_path_rel, user_id, settings)
-                    if row.crop_path_rel
-                    else None
-                ),
+                image_url=signed_url_if_exists(row.frame_path_rel, user_id, settings),
+                crop_url=signed_url_if_exists(row.crop_path_rel, user_id, settings),
                 enhanced_url=enhanced_url,
             )
         )
@@ -97,6 +93,7 @@ def build_run_result_out(
         run_id=run.id,
         clip_id=run.clip_id,
         pipeline_mode=run.pipeline_mode,
+        served_from_demo_pack=bool(run.served_from_demo_pack),
         banner=FAKE_BANNER_TEXT if run.pipeline_mode == "fake" else None,
         notice=HUMAN_VERIFICATION_NOTICE,
         video_url=make_signed_file_url(clip.stored_path, user_id, settings),
@@ -142,6 +139,7 @@ def _run_to_status_out(
         tracker=run.tracker,
         atm_id=run.atm_id,
         pipeline_mode=run.pipeline_mode,
+        served_from_demo_pack=bool(run.served_from_demo_pack),
         link_low_margin=bool(run.link_low_margin),
         created_by=run.created_by,
         created_at=run.created_at,
@@ -191,7 +189,7 @@ def process_clip(
         )
 
     tx_local = _to_naive_local(payload.transaction_time, settings.display_tz)
-    tx_offset_sec = (tx_local - clip.clip_start_time).total_seconds()
+    tx_offset_sec = round((tx_local - clip.clip_start_time).total_seconds(), 3)
     if tx_offset_sec < 0.0 or tx_offset_sec > clip.duration_sec:
         raise AppError(
             status_code=422,
