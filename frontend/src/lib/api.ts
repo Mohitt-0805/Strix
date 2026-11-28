@@ -81,6 +81,7 @@ apiClient.interceptors.response.use(
    ========================================================================= */
 
 export const api = {
+  getMediaUrl,
   // 1. Public Configuration, Health & ATM Zones
   async getHealth() {
     try {
@@ -210,7 +211,7 @@ export const api = {
         try {
           const text = await res.text();
           if (text) errorMessage = text;
-        } catch {}
+        } catch { }
       }
 
       const error: any = new Error(errorMessage);
