@@ -18,12 +18,21 @@ export const App: React.FC = () => {
   });
 
   const [currentView, setCurrentView] = useState<string>('dashboard');
-  const [clips, setClips] = useState<ClipOut[]>(DEMO_CLIPS);
-  const [activeClip, setActiveClip] = useState<ClipOut | null>(DEMO_CLIPS[0] || null);
-  const [runResults, setRunResults] = useState<RunResult[]>(Object.values(DEMO_RUN_RESULTS));
-  const [activeRunId, setActiveRunId] = useState<string>('run_2026_014');
+  const [clips, setClips] = useState<ClipOut[]>(isMockMode ? DEMO_CLIPS : []);
+  const [activeClip, setActiveClip] = useState<ClipOut | null>(
+    isMockMode ? (DEMO_CLIPS[0] || null) : null
+  );
+  const [runResults, setRunResults] = useState<RunResult[]>(
+    isMockMode ? Object.values(DEMO_RUN_RESULTS) : []
+  );
+  const [activeRunId, setActiveRunId] = useState<string | number | null>(
+    isMockMode ? 'run_2026_014' : null
+  );
   const [activeRunResult, setActiveRunResult] = useState<RunResult | null>(
-    DEMO_RUN_RESULTS['run_2026_014'] || null
+    isMockMode ? (DEMO_RUN_RESULTS['run_2026_014'] || null) : null
+  );
+  const [auditCount, setAuditCount] = useState<number | undefined>(
+    isMockMode ? DEMO_AUDIT_LOGS.length : undefined
   );
 
   const [capabilitiesModalOpen, setCapabilitiesModalOpen] = useState<boolean>(false);
@@ -57,6 +66,19 @@ export const App: React.FC = () => {
         .catch((err) => {
           console.warn('Could not fetch server clips:', err);
         });
+
+      if (user.role === 'admin' && !isMockMode) {
+        api
+          .getAuditLogs({ limit: 1, offset: 0 })
+          .then((res) => {
+            if (res && typeof res.total === 'number') {
+              setAuditCount(res.total);
+            }
+          })
+          .catch(() => {
+            setAuditCount(undefined);
+          });
+      }
     }
   }, [user]);
 
@@ -90,7 +112,7 @@ export const App: React.FC = () => {
     setCurrentView('dashboard');
   };
 
-  const handleSelectRun = async (runId: string) => {
+  const handleSelectRun = async (runId: string | number) => {
     setActiveRunId(runId);
     try {
       const result = await api.getRunResult(runId);
@@ -98,8 +120,10 @@ export const App: React.FC = () => {
       const matchedClip = clips.find((c) => c.id === result.clip_id);
       if (matchedClip) setActiveClip(matchedClip);
     } catch {
-      if (DEMO_RUN_RESULTS[runId]) {
-        setActiveRunResult(DEMO_RUN_RESULTS[runId]);
+      if (isMockMode && DEMO_RUN_RESULTS[String(runId)]) {
+        setActiveRunResult(DEMO_RUN_RESULTS[String(runId)]);
+      } else {
+        setActiveRunResult(null);
       }
     }
     setCurrentView('inspector');
@@ -115,7 +139,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleRunCompleted = (runId: string, clip: ClipOut, result?: RunResult) => {
+  const handleRunCompleted = (runId: string | number, clip: ClipOut, result?: RunResult) => {
     setClips((prev) => {
       const exists = prev.some((c) => c.id === clip.id);
       return exists ? prev : [clip, ...prev];
@@ -223,11 +247,11 @@ export const App: React.FC = () => {
           user={user}
           currentView={currentView}
           onNavigate={setCurrentView}
-          activeEvidenceId={`EV-${activeRunId}`}
+          activeEvidenceId={activeRunId ? `EV-${activeRunId}` : 'EV-NONE'}
           activeRunStatus="DONE"
           isServedFromDemo={Boolean(activeRunResult?.served_from_demo_pack)}
           clipCount={clips.length}
-          auditCount={DEMO_AUDIT_LOGS.length}
+          auditCount={user?.role === 'admin' ? auditCount : undefined}
           onSignOut={handleSignOut}
           onSaveEvidence={() => showToast(`Evidence state saved for EV-${activeRunId}`)}
           onRunFullDemo={handleRunFullDemo}

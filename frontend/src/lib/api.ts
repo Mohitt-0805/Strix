@@ -17,6 +17,10 @@ import {
   SearchRequest,
   SearchResult,
   SelectionRequest,
+  SelectionResponse,
+  IndexClipRequest,
+  IndexClipResponse,
+  IndexStatus,
 } from '@/types/forensic';
 import { DEMO_CLIPS, DEMO_RUNS, DEMO_RUN_RESULTS, DEMO_ZONES, DEMO_AUDIT_LOGS } from './mockData';
 
@@ -387,13 +391,13 @@ export const api = {
     }
   },
 
-  async getRun(runId: string): Promise<RunStatus> {
+  async getRun(runId: number | string): Promise<RunStatus> {
     try {
       const res = await apiClient.get<RunStatus>(`/runs/${runId}`);
       return res.data;
     } catch (err: any) {
       if (DEMO_MODE) {
-        const run = DEMO_RUNS.find((r) => r.run_id === runId) || DEMO_RUNS[0];
+        const run = DEMO_RUNS.find((r) => String(r.run_id) === String(runId)) || DEMO_RUNS[0];
         // Simulate progressive pipeline stages in demo mode
         if (run && (run.status === 'queued' || run.status === 'running')) {
           const currentProg = run.progress || 0;
@@ -419,47 +423,71 @@ export const api = {
     }
   },
 
-  async getRunResult(runId: string): Promise<RunResult> {
+  async listClipRuns(clipId: string): Promise<RunStatus[]> {
+    try {
+      const res = await apiClient.get<RunStatus[]>(`/clips/${clipId}/runs`);
+      return res.data;
+    } catch (err: any) {
+      if (DEMO_MODE) {
+        return DEMO_RUNS.filter((r) => r.clip_id === clipId);
+      }
+      throw err;
+    }
+  },
+
+  async getRunResult(runId: number | string): Promise<RunResult> {
     try {
       const res = await apiClient.get<RunResult>(`/runs/${runId}/result`);
       return res.data;
     } catch (err: any) {
       if (DEMO_MODE) {
-        return DEMO_RUN_RESULTS[runId] || DEMO_RUN_RESULTS['run_default'];
+        return DEMO_RUN_RESULTS[String(runId)] || DEMO_RUN_RESULTS['run_default'];
       }
       throw err;
     }
   },
 
   // 5. Frame Selection & Enhancement
-  async updateSelection(runId: string, frameIds: (string | number)[]): Promise<{ success: boolean; frame_ids: (string | number)[] }> {
+  async updateSelection(
+    runId: number | string,
+    frameIds: (string | number)[]
+  ): Promise<SelectionResponse | { success: boolean; frame_ids: (string | number)[] }> {
     try {
-      const res = await apiClient.post(`/runs/${runId}/selection`, { frame_ids: frameIds });
+      const res = await apiClient.post<SelectionResponse>(`/runs/${runId}/selection`, { frame_ids: frameIds });
       return res.data;
     } catch (err: any) {
       if (DEMO_MODE) {
-        const run = DEMO_RUNS.find((r) => r.run_id === runId);
+        const run = DEMO_RUNS.find((r) => String(r.run_id) === String(runId));
         if (run) run.selected_frame_ids = frameIds;
-        return { success: true, frame_ids: frameIds };
+        return { run_id: runId, selected_frame_ids: frameIds, success: true, frame_ids: frameIds };
       }
       throw err;
     }
   },
 
-  async enhanceFrame(runId: string, frameId: string | number, req: EnhanceFrameRequest): Promise<Enhancement> {
+  async enhanceFrame(
+    runId: number | string,
+    frameId: string | number,
+    req: EnhanceFrameRequest
+  ): Promise<Enhancement> {
     try {
       const res = await apiClient.post<Enhancement>(`/runs/${runId}/frames/${frameId}/enhance`, req);
       return res.data;
     } catch (err: any) {
       if (DEMO_MODE) {
         return {
-          enhanced_path: `outputs/${runId}/f_${frameId}_enh_x${req.scale}.jpg`,
+          run_id: runId,
+          frame_id: frameId,
+          original_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}.jpg`,
+          enhanced_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}_enh_x${req.scale}.jpg`,
           method: req.method || 'lanczos',
           scale: req.scale,
           model_version: `${req.method || 'lanczos'}_x${req.scale}_v1`,
           crop_box: req.crop_box,
+          face_box: null,
           search_embedding_source: 'original',
-          enhanced_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}_enh_x${req.scale}.jpg`,
+          cached: false,
+          enhanced_path: `outputs/${runId}/f_${frameId}_enh_x${req.scale}.jpg`,
         };
       }
       throw err;
@@ -520,7 +548,7 @@ export const api = {
   },
 
   // 7. Evidence Dossier PDF
-  async downloadEvidencePdf(runId: string, searchId?: string): Promise<Blob> {
+  async downloadEvidencePdf(runId: number | string, searchId?: number | string): Promise<Blob> {
     try {
       const params = searchId ? { search_id: searchId } : undefined;
       const res = await apiClient.get(`/runs/${runId}/evidence.pdf`, {
@@ -536,6 +564,51 @@ export const api = {
           ],
           { type: 'application/pdf' }
         );
+      }
+      throw err;
+    }
+  },
+
+  // Indexing Endpoints
+  async indexClip(clipId: string, req?: IndexClipRequest): Promise<IndexClipResponse> {
+    try {
+      const res = await apiClient.post<IndexClipResponse>(`/clips/${clipId}/index`, req || {});
+      return res.data;
+    } catch (err: any) {
+      if (DEMO_MODE) {
+        return { index_id: 1, status: 'queued' };
+      }
+      throw err;
+    }
+  },
+
+  async listClipIndexes(clipId: string): Promise<IndexStatus[]> {
+    try {
+      const res = await apiClient.get<IndexStatus[]>(`/clips/${clipId}/indexes`);
+      return res.data;
+    } catch (err: any) {
+      if (DEMO_MODE) {
+        return [];
+      }
+      throw err;
+    }
+  },
+
+  async getIndex(indexId: number | string): Promise<IndexStatus> {
+    try {
+      const res = await apiClient.get<IndexStatus>(`/indexes/${indexId}`);
+      return res.data;
+    } catch (err: any) {
+      if (DEMO_MODE) {
+        return {
+          index_id: indexId,
+          clip_id: 'demo_clip',
+          status: 'done',
+          stage: 'done',
+          progress: 1.0,
+          total_embeddings: 0,
+          tracks: [],
+        };
       }
       throw err;
     }

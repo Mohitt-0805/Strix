@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, AuditEntry, AuditVerifyResponse } from '@/types/forensic';
-import { api } from '@/lib/api';
+import { api, isMockMode } from '@/lib/api';
 import { DEMO_AUDIT_LOGS } from '@/lib/mockData';
 
 interface AuditTrailViewProps {
@@ -8,7 +8,7 @@ interface AuditTrailViewProps {
 }
 
 export const AuditTrailView: React.FC<AuditTrailViewProps> = ({ user }) => {
-  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>(DEMO_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
@@ -29,13 +29,24 @@ export const AuditTrailView: React.FC<AuditTrailViewProps> = ({ user }) => {
           setVerifyState(verifyRes);
         })
         .catch((err) => {
-          console.warn('Audit fetch warning (using demo logs if offline):', err);
-          setVerifyState({
-            ok: true,
-            checked_count: DEMO_AUDIT_LOGS.length,
-            first_bad_id: null,
-            reason: null,
-          });
+          console.warn('Audit fetch error:', err);
+          if (isMockMode) {
+            setAuditLogs(DEMO_AUDIT_LOGS);
+            setVerifyState({
+              ok: true,
+              checked_count: DEMO_AUDIT_LOGS.length,
+              first_bad_id: null,
+              reason: null,
+            });
+          } else {
+            setAuditLogs([]);
+            setVerifyState({
+              ok: false,
+              checked_count: 0,
+              first_bad_id: null,
+              reason: `Could not verify audit chain: ${err?.message || 'Server unreachable or error'}`,
+            });
+          }
         })
         .finally(() => setIsLoading(false));
     }
@@ -151,16 +162,16 @@ export const AuditTrailView: React.FC<AuditTrailViewProps> = ({ user }) => {
           {verifyState && verifyState.ok ? (
             <span className="inline-flex items-center gap-2 font-mono text-[11px] font-medium bg-white border border-hairline rounded px-3 py-1.5 text-status-emerald shadow-sm">
               <span className="w-2 h-2 rounded-full bg-status-emerald"></span>
-              SHA-256 INTEGRITY VERIFIED ({verifyState.checked_count} BLOCKS)
+              SHA-256 INTEGRITY VALIDATED ({verifyState.checked_count} BLOCKS)
             </span>
           ) : verifyState && !verifyState.ok ? (
             <span className="inline-flex items-center gap-2 font-mono text-[11px] font-bold bg-status-crimsonBg border border-status-crimsonBorder rounded px-3 py-1.5 text-status-crimson shadow-sm">
               <span className="w-2 h-2 rounded-full bg-status-crimson animate-ping"></span>
-              CHAIN TAMPERED (BAD ID: {verifyState.first_bad_id})
+              {verifyState.reason || `CHAIN TAMPERED (BAD ID: ${verifyState.first_bad_id})`}
             </span>
           ) : (
             <span className="inline-flex items-center gap-2 font-mono text-[11px] font-medium bg-white border border-hairline rounded px-3 py-1.5 text-slate-500 shadow-sm">
-              VERIFYING HASH CHAIN...
+              {isLoading ? 'VERIFYING HASH CHAIN...' : 'AWAITING AUDIT VERIFICATION'}
             </span>
           )}
         </div>
@@ -250,7 +261,7 @@ export const AuditTrailView: React.FC<AuditTrailViewProps> = ({ user }) => {
               {filteredLogs.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-xs text-slate-400 font-mono">
-                    No chain-of-custody audit entries matched query.
+                    {auditLogs.length === 0 ? 'No data yet' : 'No chain-of-custody audit entries matched query.'}
                   </td>
                 </tr>
               )}
