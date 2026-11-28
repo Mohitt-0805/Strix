@@ -31,19 +31,20 @@ export interface Metrics {
 }
 
 export interface Enhancement {
-  enhanced_path?: string;
+  run_id: number | string;
+  frame_id: number | string;
+  original_url: string;
+  enhanced_url: string;
   method: string;
   scale: number;
   model_version: string;
   crop_box: [number, number, number, number];
+  face_box: [number, number, number, number] | null;
   search_embedding_source: string;
-  enhanced_url?: string;
-  original_url?: string;
+  cached: boolean;
+  // Backward-compatibility optional fields
+  enhanced_path?: string;
   signed_enhanced_url?: string;
-  run_id?: number | string;
-  frame_id?: number | string;
-  face_box?: [number, number, number, number] | null;
-  cached?: boolean;
   warning?: string;
   score_diff?: number;
   secondary_warning?: string;

@@ -8,6 +8,8 @@ export interface CaseInspectorViewProps {
   publicConfig: PublicConfig | null;
   onAuditAction: (action: string, refId: string, details: string) => void;
   onNavigate: (view: string) => void;
+  onSelectClip?: (clip: ClipOut) => void;
+  onSelectRun?: (runId: string | number) => void;
 }
 
 export const CaseInspectorView: React.FC<CaseInspectorViewProps> = (props) => {

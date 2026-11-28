@@ -478,15 +478,16 @@ export const api = {
         return {
           run_id: runId,
           frame_id: frameId,
-          enhanced_path: `outputs/${runId}/f_${frameId}_enh_x${req.scale}.jpg`,
+          original_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}.jpg`,
+          enhanced_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}_enh_x${req.scale}.jpg`,
           method: req.method || 'lanczos',
           scale: req.scale,
           model_version: `${req.method || 'lanczos'}_x${req.scale}_v1`,
           crop_box: req.crop_box,
+          face_box: null,
           search_embedding_source: 'original',
-          enhanced_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}_enh_x${req.scale}.jpg`,
-          original_url: `/files?p=outputs%2F${runId}%2Ff_${frameId}.jpg`,
           cached: false,
+          enhanced_path: `outputs/${runId}/f_${frameId}_enh_x${req.scale}.jpg`,
         };
       }
       throw err;

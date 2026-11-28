@@ -372,7 +372,9 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
       )
     : '';
 
-  const modalOriginalCropUrl = enhancingFrame
+  const modalOriginalCropUrl = activeEnhancementResult?.original_url
+    ? getMediaUrl(activeEnhancementResult.original_url)
+    : enhancingFrame
     ? getMediaUrl(
         enhancingFrame.crop_url ||
           enhancingFrame.signed_crop_url ||
@@ -381,12 +383,8 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
       )
     : '';
 
-  const modalEnhancedUrl = activeEnhancementResult
-    ? getMediaUrl(
-        activeEnhancementResult.enhanced_url ||
-          activeEnhancementResult.signed_enhanced_url ||
-          `/files?p=${activeEnhancementResult.enhanced_path}`
-      )
+  const modalEnhancedUrl = activeEnhancementResult?.enhanced_url
+    ? getMediaUrl(activeEnhancementResult.enhanced_url)
     : '';
 
   return (
@@ -1243,26 +1241,20 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
                   Enhancement is for human viewing only. It does not add real detail. Face search uses the original.
                 </div>
 
-                {/* Optional Warning or Score-Difference Field (Amber styling if present) */}
-                {((activeEnhancementResult as any)?.warning ||
-                  (activeEnhancementResult as any)?.score_diff !== undefined ||
-                  (activeEnhancementResult as any)?.secondary_warning) && (
-                  <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded text-xs space-y-1 font-mono">
-                    <div className="font-semibold flex items-center gap-1.5 text-amber-800">
-                      <span>⚠</span>
-                      <span>Enhancement Advisory</span>
-                    </div>
-                    {(activeEnhancementResult as any)?.warning && (
-                      <div>{(activeEnhancementResult as any).warning}</div>
-                    )}
-                    {(activeEnhancementResult as any)?.secondary_warning && (
-                      <div>{(activeEnhancementResult as any).secondary_warning}</div>
-                    )}
-                    {(activeEnhancementResult as any)?.score_diff !== undefined && (
-                      <div>Score Difference: {(activeEnhancementResult as any).score_diff}</div>
-                    )}
-                  </div>
-                )}
+                {/* Metadata: search_embedding_source & cached */}
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 px-0.5">
+                  <span>
+                    search_embedding_source:{' '}
+                    <strong className="text-slate-700">
+                      {activeEnhancementResult.search_embedding_source || 'original'}
+                    </strong>
+                  </span>
+                  {activeEnhancementResult.cached && (
+                    <span className="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded text-slate-600">
+                      cached
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
