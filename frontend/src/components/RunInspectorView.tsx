@@ -547,14 +547,83 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
         </div>
       )}
 
-      {/* 5. Warnings and Coverage Notice */}
-      {runResult?.warnings && runResult.warnings.length > 0 && (
-        <div className="bg-canvas border border-hairline rounded-md p-3 text-xs space-y-1">
-          {runResult.warnings.map((w, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-amber-700 font-medium">
-              <span>⚠ {w}</span>
+      {/* 5. Run Notes & Metadata Panel */}
+      {(Boolean(runResult?.warnings?.length) ||
+        runResult?.coverage_start_sec != null ||
+        runResult?.effective_sample_fps != null ||
+        bestFrames.length === 0 ||
+        runResult?.show_selection_reason) && (
+        <div id="panelRunNotes" className="bg-white border border-hairline rounded-md p-3.5 space-y-2 text-xs">
+          <div className="flex items-center justify-between pb-1.5 border-b border-hairline text-slate-800 font-semibold text-[11px] uppercase tracking-wider">
+            <span>Run Notes &amp; Extraction Telemetry</span>
+            <span className="font-mono text-[10px] text-slate-500 font-normal">
+              Pipeline Diagnostics
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-slate-600 font-mono text-[11px]">
+            {runResult?.coverage_start_sec != null && runResult?.coverage_end_sec != null && (
+              <div>
+                <span className="text-slate-400">Coverage:</span>{' '}
+                <span className="font-semibold text-slate-800">
+                  {runResult.coverage_start_sec.toFixed(1)}s &ndash; {runResult.coverage_end_sec.toFixed(1)}s
+                </span>
+              </div>
+            )}
+            {runResult?.effective_sample_fps != null && (
+              <div>
+                <span className="text-slate-400">Effective Sample FPS:</span>{' '}
+                <span className="font-semibold text-slate-800">
+                  {runResult.effective_sample_fps} fps
+                </span>
+                {runResult?.requested_sample_fps != null &&
+                  runResult.requested_sample_fps !== runResult.effective_sample_fps && (
+                    <span className="text-status-amber ml-1">
+                      (requested: {runResult.requested_sample_fps} fps)
+                    </span>
+                  )}
+              </div>
+            )}
+          </div>
+
+          {/* Warnings */}
+          {runResult?.warnings && runResult.warnings.length > 0 && (
+            <div className="space-y-1 pt-1">
+              {runResult.warnings.map((w, idx) => (
+                <div key={idx} className="flex items-center gap-1.5 text-status-amber font-mono text-[11px]">
+                  <span>⚠</span>
+                  <span>{w}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+
+          {/* Selection Reason */}
+          {(bestFrames.length === 0 || runResult?.show_selection_reason) && (
+            <div className="mt-2 p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+              <span className="font-semibold">Candidate Selection Reason: </span>
+              <span>
+                {runResult?.selection_reason ||
+                  runResult?.link_reason ||
+                  'No candidate face frames extracted for this transaction window.'}
+              </span>
+              {bestFrames.length === 0 && (
+                <span className="block mt-1 text-[11px] text-amber-700 italic">
+                  Note: An empty best frames list is a factual observation, not a pipeline failure.
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PDF Export Error Banner */}
+      {pdfError && (
+        <div className="bg-red-50 border border-red-200 rounded p-2.5 text-xs text-red-700 font-mono flex items-center justify-between">
+          <span>Evidence PDF export error: {pdfError}</span>
+          <button onClick={() => setPdfError(null)} className="text-red-500 hover:text-red-800">
+            ✕
+          </button>
         </div>
       )}
 
@@ -584,13 +653,52 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
 
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-xs text-slate-500 font-mono">
-            {bestFrames.length} candidate frame{bestFrames.length !== 1 ? 's' : ''}
+            {selectedFrameIds.length}/{bestFrames.length} selected
           </span>
           {isUpdatingSelection && (
             <span className="text-[11px] text-steel font-mono animate-pulse">
               Saving selection...
             </span>
           )}
+
+          {/* Export Evidence Sheet (PDF) Button */}
+          <div className="relative group">
+            <button
+              id="btnExportPdf"
+              type="button"
+              onClick={handleExportPdf}
+              disabled={selectedFrameIds.length === 0 || isExportingPdf}
+              className={`px-3 py-1.5 text-xs font-semibold rounded flex items-center gap-1.5 transition-colors shadow-sm ${
+                selectedFrameIds.length === 0
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-steel hover:bg-steel-hover text-white'
+              }`}
+            >
+              {isExportingPdf ? (
+                <>
+                  <svg className="animate-spin w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span>Exporting PDF...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span>Export evidence sheet (PDF)</span>
+                </>
+              )}
+            </button>
+            {selectedFrameIds.length === 0 && (
+              <div className="absolute right-0 top-full mt-1 hidden group-hover:block z-30 px-2.5 py-1 text-[11px] font-medium bg-slate-900 text-white rounded shadow-lg whitespace-nowrap pointer-events-none">
+                Select at least one candidate frame to export evidence sheet
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
