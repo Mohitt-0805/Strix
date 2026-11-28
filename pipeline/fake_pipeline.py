@@ -21,6 +21,7 @@ from pipeline.contract import (
     PipelineResult,
     SearchMatch,
     SearchResult,
+    WarmupResult,
     load_result,
 )
 from pipeline.compare import ENHANCEMENT_WARNING, determine_basis, load_compare_config
@@ -439,5 +440,25 @@ def secondary_scores(
         "enhanced_embedding_found": True,
         "note": None,
     }
+
+
+def warmup(
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    include_clip: bool = True,
+    run_dummy: bool = True,
+    include_critical: bool = False,
+) -> WarmupResult:
+    """Instant fake warmup matching pipeline.warmup.warmup() without heavy imports."""
+    _ = (include_clip, run_dummy, include_critical)
+    _emit(progress_cb, "warmup", 0.1, "Starting warmup (fake)")
+    _emit(progress_cb, "warmup", 1.0, "Warmup complete (fake)")
+    return WarmupResult(
+        ok=True,
+        loaded={"person_detector": None, "face_model": None, "clip": None},
+        providers={"faces": None, "torch_device": None},
+        timings_ms={"person_detector": 0.0, "face_model": 0.0, "clip": 0.0},
+        warnings=["fake pipeline"],
+        total_ms=0.1,
+    )
 
 

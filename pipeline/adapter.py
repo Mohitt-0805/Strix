@@ -235,3 +235,15 @@ def get_secondary_scores() -> Callable[..., dict[str, Any]]:
     from pipeline.compare import secondary_scores
 
     return secondary_scores
+
+
+def get_warmup() -> Callable[..., object]:
+    """Return fake_pipeline.warmup if USE_FAKE_PIPELINE is truthy, else pipeline.warmup.warmup."""
+    if _use_fake():
+        from pipeline.fake_pipeline import warmup
+
+        return warmup
+
+    from pipeline.warmup import warmup
+
+    return warmup
