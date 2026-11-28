@@ -6,10 +6,13 @@ lightweight pipeline modules.
 """
 
 from dataclasses import dataclass, field
+import threading
 from typing import Any, Iterable, Literal
 
 
 COCO_PERSON_CLASS_ID = 1
+_DETECTOR_LOCK = threading.Lock()
+_PERSON_DETECTORS: dict[str, Any] = {}
 
 
 @dataclass
@@ -43,7 +46,7 @@ def get_device() -> str:
 
 
 def load_person_detector(device: str | None = None) -> Any:
-    """Load Faster R-CNN MobileNetV3 Large 320 FPN with default COCO weights in eval mode."""
+    """Load and cache Faster R-CNN MobileNetV3 Large 320 FPN with default COCO weights."""
     import os
     from pathlib import Path
     import torch
@@ -52,21 +55,27 @@ def load_person_detector(device: str | None = None) -> Any:
         fasterrcnn_mobilenet_v3_large_320_fpn,
     )
 
-    model_dir = Path(os.environ.get("MODEL_DIR", "data/models"))
-    torch_dir = model_dir / "torch"
-    legacy_dir = Path(torch.hub.get_dir())
-    if torch_dir.is_dir() and any(torch_dir.iterdir()):
-        torch.hub.set_dir(str(torch_dir))
-    elif not (legacy_dir.is_dir() and any(legacy_dir.iterdir())):
-        torch_dir.mkdir(parents=True, exist_ok=True)
-        torch.hub.set_dir(str(torch_dir))
-
     target_device = device or get_device()
-    weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
-    model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights)
-    model.eval()
-    model.to(target_device)
-    return model
+    with _DETECTOR_LOCK:
+        cached = _PERSON_DETECTORS.get(target_device)
+        if cached is not None:
+            return cached
+
+        model_dir = Path(os.environ.get("MODEL_DIR", "data/models"))
+        torch_dir = model_dir / "torch"
+        legacy_dir = Path(torch.hub.get_dir())
+        if torch_dir.is_dir() and any(torch_dir.iterdir()):
+            torch.hub.set_dir(str(torch_dir))
+        elif not (legacy_dir.is_dir() and any(legacy_dir.iterdir())):
+            torch_dir.mkdir(parents=True, exist_ok=True)
+            torch.hub.set_dir(str(torch_dir))
+
+        weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
+        model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights)
+        model.eval()
+        model.to(target_device)
+        _PERSON_DETECTORS[target_device] = model
+        return model
 
 
 def _bgr_to_tensor(frame: Any, cv2_mod: Any, torch_mod: Any) -> Any:
@@ -133,6 +142,10 @@ def detect_persons(
                 torch.cuda.empty_cache()
                 active_device = "cpu"
                 detector.to("cpu")
+                with _DETECTOR_LOCK:
+                    if _PERSON_DETECTORS.get("cuda") is detector:
+                        _PERSON_DETECTORS.pop("cuda", None)
+                        _PERSON_DETECTORS["cpu"] = detector
                 outputs = detector([tensor.to("cpu")])[0]
 
             results.append(_filter_person_detections(outputs, score_thresh))

@@ -166,6 +166,17 @@ class SearchResult(BaseModel):
     served_from_demo_pack: Optional[bool] = False
 
 
+class WarmupResult(BaseModel):
+    """Startup model warmup status, loaded flags, providers, and timings."""
+
+    ok: Optional[bool] = None
+    loaded: dict[str, Optional[bool]] = Field(default_factory=dict)
+    providers: dict[str, Optional[str]] = Field(default_factory=dict)
+    timings_ms: dict[str, Optional[float]] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    total_ms: Optional[float] = None
+
+
 def load_result(path: str | Path) -> PipelineResult:
     """Load and validate a PipelineResult JSON file from disk."""
     raw_json = Path(path).read_text(encoding="utf-8")

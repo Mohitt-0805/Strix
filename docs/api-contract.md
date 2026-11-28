@@ -151,6 +151,29 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
   - `enhanced_embedding_found`: `bool` (`false` yields `similarity_secondary=None` for all rows and a descriptive `note`)
   - `note`: `str | None`
 
+### `WarmupResult` & `warmup()` (`pipeline/warmup.py`, `pipeline/adapter.py`)
+```python
+def warmup(
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    include_clip: bool = True,
+    run_dummy: bool = True,
+    include_critical: bool = False,
+) -> WarmupResult:
+    ...
+```
+Exposed via `adapter.get_warmup()` (returns `fake_pipeline.warmup` when `USE_FAKE_PIPELINE` is truthy, else `pipeline.warmup.warmup`).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ok` | `Optional[bool]` | `None` | `true` when critical models (`person_detector`, `face_model`) loaded and warmed cleanly. |
+| `loaded` | `dict[str, Optional[bool]]` | `{}` | Per-model status (`person_detector`, `face_model`, `clip`: `bool` or `None` if skipped/fake). |
+| `providers` | `dict[str, Optional[str]]` | `{}` | Active ONNX Runtime provider for `faces` and `torch_device`. |
+| `timings_ms` | `dict[str, Optional[float]]` | `{}` | Per-model warmup timing in milliseconds. |
+| `warnings` | `list[str]` | `[]` | Non-fatal warnings (e.g. CLIP disabled, or `"fake pipeline"`). |
+| `total_ms` | `Optional[float]` | `None` | Total warmup duration in milliseconds. |
+
+> Backend guidance: call `get_warmup()` once at backend startup in a background thread, run jobs only after `ok` is `True`, and expose the warmup status in `/health`.
+
 ### Errors (`pipeline/errors.py`)
 | Exception | `code` | When raised |
 | --- | --- | --- |
