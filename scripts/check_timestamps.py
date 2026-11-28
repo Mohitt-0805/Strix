@@ -84,9 +84,67 @@ def _reader_frame_at(video_path: Path, t_sec: float) -> tuple[float, object] | N
     return min(samples, key=lambda pair: abs(pair[0] - t_sec))
 
 
-def main() -> int:
+def measure_drift(
+    video_path: Path,
+    times: list[float],
+    search_sec: float = 3.0,
+) -> list[dict[str, object]]:
+    """Compare reader timestamps against ffmpeg reference frames at target times.
+
+    Offsets are ordered by smallest abs(offset) first so static scenes with
+    identical frames break ties cleanly at 0.00s instead of negative offsets.
+    """
     import numpy as np
 
+    raw_offsets = [round(-search_sec + 0.25 * i, 2) for i in range(int(round(2 * search_sec / 0.25)) + 1)]
+    offsets = sorted(raw_offsets, key=lambda o: (abs(o), o))
+    results: list[dict[str, object]] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir_str:
+        tmp_dir = Path(tmpdir_str)
+        for idx, t_sec in enumerate(times):
+            picked = _reader_frame_at(video_path, t_sec)
+            if picked is None:
+                results.append({"t_sec": t_sec, "reader_t": None, "exact_mad": None, "best_offset": None, "best_mad": None, "drifted": False})
+                continue
+            reader_t, reader_bgr = picked
+            reader_gray = _to_160x90_gray(reader_bgr)
+
+            ff_exact = _ffmpeg_frame_160x90_gray(video_path, reader_t, tmp_dir, f"exact_{idx}_{t_sec:.2f}")
+            exact_mad = (
+                float(np.mean(np.abs(reader_gray.astype(np.float32) - ff_exact.astype(np.float32))))
+                if ff_exact is not None
+                else float("nan")
+            )
+
+            best_off = 0.0
+            best_mad = float("inf")
+            for off in offsets:
+                probe_t = reader_t + off
+                if probe_t < 0.0:
+                    continue
+                ff_off = _ffmpeg_frame_160x90_gray(video_path, probe_t, tmp_dir, f"off_{idx}_{t_sec:.2f}_{off:+.2f}")
+                if ff_off is None:
+                    continue
+                mad = float(np.mean(np.abs(reader_gray.astype(np.float32) - ff_off.astype(np.float32))))
+                if mad < best_mad - 1e-6:
+                    best_mad = mad
+                    best_off = off
+
+            results.append(
+                {
+                    "t_sec": float(t_sec),
+                    "reader_t": float(reader_t),
+                    "exact_mad": float(exact_mad),
+                    "best_offset": float(best_off) if best_mad < float("inf") else None,
+                    "best_mad": float(best_mad) if best_mad < float("inf") else None,
+                    "drifted": bool(best_mad < float("inf") and abs(best_off) > 0.25),
+                }
+            )
+    return results
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="Check pipeline/frames.py timestamps against ffmpeg.")
     parser.add_argument("video", type=Path, help="Path to video file")
     parser.add_argument("--times", type=float, nargs="+", required=True, help="Timestamps in seconds")
@@ -102,48 +160,20 @@ def main() -> int:
     print(f"reader:  assumed_fps={info['fps']:.4f}, vfr_suspected={info.get('vfr_suspected', 'N/A')}")
     print()
 
+    rows = measure_drift(args.video, args.times, search_sec=args.search)
     drift_detected = False
-    with tempfile.TemporaryDirectory() as tmpdir_str:
-        tmp_dir = Path(tmpdir_str)
-        offsets = [round(-args.search + 0.25 * i, 2) for i in range(int(round(2 * args.search / 0.25)) + 1)]
-
-        for t_sec in args.times:
-            picked = _reader_frame_at(args.video, t_sec)
-            if picked is None:
-                print(f"t={t_sec:.2f}s: reader returned no frame")
-                continue
-            reader_t, reader_bgr = picked
-            reader_gray = _to_160x90_gray(reader_bgr)
-
-            ff_exact = _ffmpeg_frame_160x90_gray(args.video, reader_t, tmp_dir, f"exact_{t_sec:.2f}")
-            exact_mad = (
-                float(np.mean(np.abs(reader_gray.astype(np.float32) - ff_exact.astype(np.float32))))
-                if ff_exact is not None
-                else float("nan")
-            )
-
-            best_off = 0.0
-            best_mad = float("inf")
-            for off in offsets:
-                probe_t = reader_t + off
-                if probe_t < 0.0:
-                    continue
-                ff_off = _ffmpeg_frame_160x90_gray(args.video, probe_t, tmp_dir, f"off_{t_sec:.2f}_{off:+.2f}")
-                if ff_off is None:
-                    continue
-                mad = float(np.mean(np.abs(reader_gray.astype(np.float32) - ff_off.astype(np.float32))))
-                if mad < best_mad:
-                    best_mad = mad
-                    best_off = off
-
-            msg = (
-                f"t={t_sec:>6.2f}s (reader_t={reader_t:>6.2f}s) | "
-                f"exact_mad={exact_mad:>5.2f} | best_offset={best_off:+.2f}s (mad={best_mad:>5.2f})"
-            )
-            if abs(best_off) > 0.25:
-                drift_detected = True
-                msg += f"  --> TIMESTAMP DRIFT of about {best_off:+.2f} s"
-            print(msg)
+    for row in rows:
+        if row["reader_t"] is None:
+            print(f"t={row['t_sec']:.2f}s: reader returned no frame")
+            continue
+        msg = (
+            f"t={row['t_sec']:>6.2f}s (reader_t={row['reader_t']:>6.2f}s) | "
+            f"exact_mad={row['exact_mad']:>5.2f} | best_offset={row['best_offset']:+.2f}s (mad={row['best_mad']:>5.2f})"
+        )
+        if row["drifted"]:
+            drift_detected = True
+            msg += f"  --> TIMESTAMP DRIFT of about {row['best_offset']:+.2f} s"
+        print(msg)
 
     return 1 if drift_detected else 0
 
