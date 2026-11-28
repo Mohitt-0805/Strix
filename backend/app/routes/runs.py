@@ -250,10 +250,17 @@ def process_clip(
                 ),
             )
 
+    job_manager: JobManager = request.app.state.job_manager
+    warmup_mgr = getattr(request.app.state, "warmup_manager", None)
+    initial_stage = (
+        "waiting for models"
+        if warmup_mgr is not None and warmup_mgr.state == "running"
+        else "queued"
+    )
     run = Run(
         clip_id=clip.id,
         status="queued",
-        stage="queued",
+        stage=initial_stage,
         progress=None,
         transaction_time=tx_local,
         tx_offset_sec=tx_offset_sec,
@@ -268,7 +275,6 @@ def process_clip(
     db.commit()
     db.refresh(run)
 
-    job_manager: JobManager = request.app.state.job_manager
     job_manager.submit_run(run.id)
     return RunAcceptedResponse(run_id=run.id, status=run.status)
 

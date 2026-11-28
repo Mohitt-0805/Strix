@@ -21,8 +21,8 @@ Every error response uses the uniform JSON shape:
 
 - **Signed media URLs (`video_url`, `image_url`, `crop_url`, `enhanced_url`, `original_url`, `frame_url`):**
   Every media URL returned by the API is a **relative** path (`/files?p=...&uid=...&exp=...&sig=...`). Prefix it with the API base URL (e.g., `${API_BASE_URL}${frame.image_url}`) and pass it directly to `<img>` or `<video>` tags **without** any `Authorization` header (browsers do not send Bearer headers from media tags, and `/files` authenticates via the short-lived HMAC signature). Video supports HTTP `Range` seeking automatically. Missing image files return `null` URLs in search and index responses rather than breaking.
-- **`pipeline_mode` and `demo_pack_enabled` from `/config/public`:**
-  Fetch `GET /config/public` on app load. When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results. When `DEMO_PACK_DIR` is set (`demo_pack_enabled: true`) and `USE_FAKE_PIPELINE=0`, matching runs (`clip_name`, `atm_id`, `tx_offset_sec` to 3 decimals, `window_sec`) and indexes (`clip_name`) are served from pre-computed cache and labelled `served_from_demo_pack: true` on `GET /runs/{id}`, `GET /runs/{id}/result`, `GET /clips/{id}/indexes`, `GET /indexes/{id}`, and on the exported Evidence PDF.
+- **`pipeline_mode`, `pipeline_ready`, and `demo_pack_enabled` from `/config/public` & `/health`:**
+  Fetch `GET /config/public` on app load (or poll `GET /health`). Startup warm-up runs asynchronously in a background thread (~8 s on the real pipeline machine, making the first job faster afterwards; instant in fake mode). While `pipeline_ready === false`, display `"Models loading..."` in the UI (jobs submitted during warm-up stay `"queued"` with stage `"waiting for models"`, and fail immediately with `MODEL_LOAD` if `warmup.state === "failed"`). When `pipeline_mode === "fake"`, display a prominent banner using `banner` (`"FAKE PIPELINE, DEMO DATA"`) so demo results are never mistaken for real pipeline output. Always display `notice` (`"Possible matches only. A human investigator must verify every result."`) alongside results. When `DEMO_PACK_DIR` is set (`demo_pack_enabled: true`) and `USE_FAKE_PIPELINE=0`, matching runs (`clip_name`, `atm_id`, `tx_offset_sec` to 3 decimals, `window_sec`) and indexes (`clip_name`) are served from pre-computed cache and labelled `served_from_demo_pack: true` on `GET /runs/{id}`, `GET /runs/{id}/result`, `GET /clips/{id}/indexes`, `GET /indexes/{id}`, and on the exported Evidence PDF.
 - **Polling runs and index jobs:**
   - `POST /clips/{id}/process` returns `202` `{run_id, status}`. Poll `GET /runs/{run_id}` (e.g., every 500–1000 ms) until `status` is `"done"` or `"failed"`. Read `stage`, `progress` (`0.0–1.0` or `null`), and `progress_message` for live progress UI.
   - `POST /clips/{id}/index` (and automatic upload indexing when `AUTO_INDEX_ON_UPLOAD=1`) returns `202` `{index_id, status}`. Poll `GET /indexes/{index_id}` using the same `status`, `stage`, `progress`, and `progress_message` fields. Note that processing runs have queue priority `0` and preempt waiting index jobs (`1`).
@@ -45,7 +45,7 @@ Every error response uses the uniform JSON shape:
 
 ### `GET /health`
 
-Public health check verifying SQLite connectivity and `ffmpeg`/`ffprobe` availability.
+Public health check verifying SQLite connectivity, startup warm-up readiness (`pipeline_ready`, `warmup`), and `ffmpeg`/`ffprobe` availability (never blocked by model loading).
 
 **Request:**
 ```bash
@@ -58,6 +58,16 @@ curl -s http://127.0.0.1:8000/health
   "status": "ok",
   "db": "ok",
   "pipeline_mode": "fake",
+  "pipeline_ready": true,
+  "warmup": {
+    "state": "ok",
+    "progress": 1.0,
+    "message": "Warmup complete (fake)",
+    "warnings": ["fake pipeline"],
+    "total_ms": 0.1,
+    "providers": {"faces": null, "torch_device": null},
+    "loaded": {"person_detector": null, "face_model": null, "clip": null}
+  },
   "ffmpeg": true,
   "ffprobe": true
 }
@@ -67,7 +77,7 @@ curl -s http://127.0.0.1:8000/health
 
 ### `GET /config/public`
 
-Public non-secret configuration, limits, accepted video extensions, model labels, and the mandatory human-verification notice.
+Public non-secret configuration, limits, warm-up readiness (`pipeline_ready`, `warmup_state`, `warmup`), accepted video extensions, model labels, and the mandatory human-verification notice.
 
 **Request:**
 ```bash
@@ -78,6 +88,17 @@ curl -s http://127.0.0.1:8000/config/public
 ```json
 {
   "pipeline_mode": "fake",
+  "pipeline_ready": true,
+  "warmup_state": "ok",
+  "warmup": {
+    "state": "ok",
+    "progress": 1.0,
+    "message": "Warmup complete (fake)",
+    "warnings": ["fake pipeline"],
+    "total_ms": 0.1,
+    "providers": {"faces": null, "torch_device": null},
+    "loaded": {"person_detector": null, "face_model": null, "clip": null}
+  },
   "demo_pack_enabled": false,
   "banner": "FAKE PIPELINE, DEMO DATA",
   "notice": "Possible matches only. A human investigator must verify every result.",

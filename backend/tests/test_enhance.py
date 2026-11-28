@@ -230,6 +230,7 @@ def test_real_mode_import_error_falls_back_to_fake_enhance(
         _env_file=None,
         USE_FAKE_PIPELINE=False,
         AUTO_INDEX_ON_UPLOAD=False,
+        WARMUP_ON_START=False,
         DATA_DIR=tmp_path / "real_fb_data",
         JWT_SECRET=TEST_JWT_SECRET,
     )

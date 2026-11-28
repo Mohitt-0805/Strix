@@ -84,10 +84,15 @@ def enqueue_clip_index(
                 ),
             )
 
+    initial_stage = (
+        "waiting for models"
+        if job_manager.warmup_manager is not None and job_manager.warmup_manager.state == "running"
+        else "queued"
+    )
     job = ClipIndex(
         clip_id=clip.id,
         status="queued",
-        stage="queued",
+        stage=initial_stage,
         progress=None,
         start_sec=float(start_sec),
         end_sec=effective_end,

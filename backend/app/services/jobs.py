@@ -30,6 +30,7 @@ from backend.app.services.search_index import (
     load_and_normalize_embedding,
 )
 from backend.app.services.storage import from_rel
+from backend.app.services.warmup import WarmupManager
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +103,12 @@ class JobManager:
         session_factory: sessionmaker[Session],
         settings: Settings,
         search_index: SearchIndex | None = None,
+        warmup_manager: WarmupManager | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.settings = settings
         self.search_index = search_index
+        self.warmup_manager = warmup_manager
         self._queue: queue.PriorityQueue[tuple[int, int, str, int]] = queue.PriorityQueue()
         self._counter = itertools.count()
         self._stopping = False
@@ -131,13 +134,68 @@ class JobManager:
         if wait and self._worker.is_alive():
             self._worker.join(timeout=30.0)
 
+    def _wait_for_warmup(self) -> dict[str, Any] | None:
+        """Wait until startup warmup finishes (or shutdown is requested) and return snapshot."""
+        if self.warmup_manager is None:
+            return None
+        while not self._stopping:
+            if self.warmup_manager.wait(timeout=0.05):
+                return self.warmup_manager.snapshot()
+        return None
+
+    def _fail_job_for_warmup(self, kind: str, job_id: int, warmup_snap: dict[str, Any]) -> None:
+        """Mark a queued/new Run or ClipIndex failed with MODEL_LOAD using warmup warnings."""
+        warnings = [str(w).strip() for w in (warmup_snap.get("warnings") or []) if str(w).strip()]
+        msg_raw = str(warmup_snap.get("message") or "").strip()
+        if warnings:
+            joined_warnings = "; ".join(warnings)
+            error_msg = (
+                joined_warnings
+                if (not msg_raw or msg_raw in joined_warnings)
+                else f"{msg_raw}; {joined_warnings}"
+            )
+        else:
+            error_msg = msg_raw or "Model warmup failed."
+
+        advice = get_error_advice("MODEL_LOAD", error_msg)
+        with self.session_factory() as db:
+            model = Run if kind == "run" else ClipIndex
+            row = db.get(model, job_id)
+            if row is None:
+                return
+            row.status = "failed"
+            row.stage = "failed"
+            row.error_code = "MODEL_LOAD"
+            row.error_message = error_msg
+            row.error_advice = advice
+            row.finished_at = utc_now_naive()
+            db.commit()
+
+            user = db.get(User, row.created_by)
+            record_audit(
+                db,
+                action="process_failed" if kind == "run" else "index_failed",
+                user_id=row.created_by,
+                username=user.username if user is not None else None,
+                role=user.role if user is not None else None,
+                target_type="run" if kind == "run" else "clip_index",
+                target_id=str(row.id),
+                details={"clip_id": row.clip_id, "error_code": "MODEL_LOAD"},
+            )
+
     def _worker_loop(self) -> None:
-        """Pop highest-priority job one at a time without ever interrupting a running job."""
+        """Pop highest-priority job one at a time without starting before warmup finishes."""
         while not self._stopping:
             _prio, _seq, kind, job_id = self._queue.get()
             try:
                 if kind == "shutdown" or self._stopping:
                     break
+                warmup_snap = self._wait_for_warmup()
+                if self._stopping:
+                    break
+                if warmup_snap is not None and warmup_snap.get("state") == "failed":
+                    self._fail_job_for_warmup(kind, job_id, warmup_snap)
+                    continue
                 if kind == "run":
                     self._execute_run(job_id)
                 elif kind == "index":
