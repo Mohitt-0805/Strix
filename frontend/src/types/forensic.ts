@@ -54,6 +54,7 @@ export interface Frame {
   signed_crop_url?: string;
   signed_frame_url?: string;
   crop_url?: string;
+  frame_url?: string;
   image_url?: string;
   match_ready?: boolean | null;
   rank_reason?: string | null;
