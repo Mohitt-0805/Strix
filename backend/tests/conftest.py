@@ -1,7 +1,12 @@
 """Shared pytest configuration and fixtures for backend tests."""
 
+import os
 import sys
 from pathlib import Path
+
+os.environ.setdefault("JWT_SECRET", "test-" + "x" * 40)
+os.environ["USE_FAKE_PIPELINE"] = "1"
+os.environ["AUTO_INDEX_ON_UPLOAD"] = "0"
 
 import pytest
 from fastapi.testclient import TestClient

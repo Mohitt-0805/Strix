@@ -70,15 +70,18 @@ def test_config_public_fake_and_real(tmp_path: Path) -> None:
         assert "FAKE PIPELINE" not in body["model_labels"]
 
 
-def test_missing_or_short_jwt_secret_refuses_to_start(tmp_path: Path) -> None:
+def test_missing_or_short_jwt_secret_refuses_to_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """App refuses to configure or start if JWT_SECRET is missing or < 32 chars."""
+    monkeypatch.delenv("JWT_SECRET", raising=False)
     with pytest.raises(ValidationError):
         Settings(_env_file=None, DATA_DIR=tmp_path)
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None, DATA_DIR=tmp_path, JWT_SECRET="too-short")
 
-    # Verify importing backend.app.main fails when no JWT_SECRET or .env is available.
+    # Verify accessing lazy main.app fails when no JWT_SECRET or .env is available.
     clean_env = {
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": str(REPO_ROOT),
@@ -90,7 +93,8 @@ def test_missing_or_short_jwt_secret_refuses_to_start(tmp_path: Path) -> None:
             (
                 "import backend.app.config as cfg; "
                 "cfg.DEFAULT_ENV_FILE = cfg.Path('nonexistent.env'); "
-                "import backend.app.main"
+                "import backend.app.main as m; "
+                "_ = m.app"
             ),
         ],
         cwd=tmp_path,
@@ -101,9 +105,9 @@ def test_missing_or_short_jwt_secret_refuses_to_start(tmp_path: Path) -> None:
     assert proc_no_env.returncode != 0
     assert "JWT_SECRET" in proc_no_env.stderr
 
-    # Verify importing backend.app.main fails when JWT_SECRET env var is too short.
+    # Verify accessing lazy main.app fails when JWT_SECRET env var is too short.
     proc_short = subprocess.run(
-        [sys.executable, "-c", "import backend.app.main"],
+        [sys.executable, "-c", "import backend.app.main as m; _ = m.app"],
         cwd=tmp_path,
         env={**clean_env, "JWT_SECRET": "too-short"},
         capture_output=True,
