@@ -92,6 +92,7 @@ Generated from `pipeline/contract.py` (`PipelineResult`, `Frame`, `FLAG_VOCAB`, 
 | `link_low_margin` | `Optional[bool]` | `False` | `true` when the top two candidate tracks had a narrow score margin. |
 | `selection_reason` | `Optional[str]` | `None` | Explanation when no frontal face or no face is visible. |
 | `timings_ms` | `Optional[dict[str, float]]` | `None` | Stage-by-stage elapsed time in milliseconds. |
+| `served_from_demo_pack` | `Optional[bool]` | `False` | `true` when served from `DEMO_PACK_DIR` (also on `IndexResult` and `SearchResult`). UIs must show a visible 'precomputed demo result' badge when this is true. |
 
 ### `Frame` optional/updated fields
 | Field | Type | Default | Description |

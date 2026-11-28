@@ -80,6 +80,7 @@ class PipelineResult(BaseModel):
     link_low_margin: Optional[bool] = False
     selection_reason: Optional[str] = None
     timings_ms: Optional[dict[str, float]] = None
+    served_from_demo_pack: Optional[bool] = False
 
 
 class IndexFace(BaseModel):
@@ -121,6 +122,7 @@ class IndexResult(BaseModel):
     index_json_path: str
     total_embeddings: int = 0
     timings_ms: Optional[dict[str, float]] = None
+    served_from_demo_pack: Optional[bool] = False
 
 
 class SearchMatch(BaseModel):
@@ -146,6 +148,7 @@ class SearchResult(BaseModel):
     top_level_warning: Optional[str] = None
     reason: Optional[str] = None
     matches: list[SearchMatch] = Field(default_factory=list)
+    served_from_demo_pack: Optional[bool] = False
 
 
 def load_result(path: str | Path) -> PipelineResult:
