@@ -4,7 +4,7 @@ import { api, isMockMode } from '@/lib/api';
 import { DEMO_CLIPS, DEMO_RUN_RESULTS } from '@/lib/mockData';
 
 interface IngestFootageViewProps {
-  onRunCompleted: (runId: string, clip: ClipOut, result?: RunResult) => void;
+  onRunCompleted: (runId: string | number, clip: ClipOut, result?: RunResult) => void;
   onAuditAction: (action: string, refId: string, details: string) => void;
   onNavigate: (view: string) => void;
 }
@@ -41,7 +41,7 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
 
   // Completion
   const [completedClip, setCompletedClip] = useState<ClipOut | null>(null);
-  const [completedRunId, setCompletedRunId] = useState<string | null>(null);
+  const [completedRunId, setCompletedRunId] = useState<string | number | null>(null);
   const [completedResult, setCompletedResult] = useState<RunResult | null>(null);
 
   const [consoleLogs, setConsoleLogs] = useState<string[]>([
@@ -244,15 +244,17 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
             Ingest ATM vestibule surveillance video (MP4, AVI, MKV, MOV), align cardholder transaction timestamps, and execute the 5-stage deterministic extraction pipeline.
           </p>
         </div>
-        <button
-          onClick={handleLoadSample}
-          className="px-3.5 py-2 text-xs font-semibold bg-white border border-steel text-steel hover:bg-steel-tint rounded flex items-center gap-1.5 transition-colors self-start sm:self-auto"
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          Load Verified ATM Incident Sample
-        </button>
+        {isMockMode && (
+          <button
+            onClick={handleLoadSample}
+            className="px-3.5 py-2 text-xs font-semibold bg-white border border-steel text-steel hover:bg-steel-tint rounded flex items-center gap-1.5 transition-colors self-start sm:self-auto"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Load Sample Footage
+          </button>
+        )}
       </div>
 
       {/* Main Ingestion & Configuration Grid */}
@@ -503,7 +505,7 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
                   </div>
                 </div>
                 <span className="font-mono text-[11px] text-slate-500">
-                  {isCompleted ? 'VERIFIED' : isCurrent ? 'PROCESSING...' : 'QUEUED'}
+                  {isCompleted ? 'COMPLETED' : isCurrent ? 'PROCESSING...' : 'QUEUED'}
                 </span>
               </div>
             );
@@ -551,7 +553,7 @@ export const IngestFootageView: React.FC<IngestFootageViewProps> = ({
         >
           <div>
             <div className="text-xs font-semibold text-status-emerald">
-              Pipeline Complete &mdash; Evidence Dossier EV-{completedRunId} Verified
+              Pipeline Complete &mdash; Evidence Dossier EV-{completedRunId} Ready
             </div>
             <div id="pipelineSuccessDetail" className="font-mono text-xs text-slate-700 mt-0.5">
               Clip: {completedClip?.original_filename || 'CCTV Footage'} &bull; Run: {completedRunId} &bull; Best Frames:{' '}

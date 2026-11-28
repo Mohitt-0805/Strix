@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ClipOut, RunResult, PublicConfig } from '@/types/forensic';
 
 interface DashboardViewProps {
@@ -6,7 +6,7 @@ interface DashboardViewProps {
   runResults: RunResult[];
   publicConfig?: PublicConfig | null;
   onNavigate: (view: string) => void;
-  onSelectRun: (runId: string) => void;
+  onSelectRun: (runId: string | number) => void;
   onOpenCapabilities: () => void;
 }
 
@@ -18,53 +18,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectRun,
   onOpenCapabilities,
 }) => {
-  const [chartPeriod, setChartPeriod] = useState<'weekly' | 'monthly'>('weekly');
-  const [tooltipData, setTooltipData] = useState<{ x: number; y: number; text: string; sub: string } | null>(null);
-
-  // KPIs
+  // KPIs computed from real clips and runs only
   const totalClips = clips.length;
-  const processedRuns = Math.max(runResults.length, 6);
-  const verifiedEvidence = Math.max(1, runResults.filter((r) => r.link_confidence === 'High').length + 3);
-  const reportsGenerated = 8;
-
-  const weeklyData = [
-    { label: 'Mon', value: 12, sub: '12 Reviews • 2 Flagged' },
-    { label: 'Tue', value: 19, sub: '19 Reviews • 4 Flagged' },
-    { label: 'Wed', value: 15, sub: '15 Reviews • 1 Flagged' },
-    { label: 'Thu', value: 27, sub: '27 Reviews • 6 Flagged' },
-    { label: 'Fri', value: 34, sub: '34 Reviews • 8 Flagged' },
-    { label: 'Sat', value: 22, sub: '22 Reviews • 3 Flagged' },
-    { label: 'Sun', value: 18, sub: '18 Reviews • 2 Flagged' },
-  ];
-
-  const monthlyData = [
-    { label: 'Week 1', value: 84, sub: '84 Reviews • 14 Flagged' },
-    { label: 'Week 2', value: 112, sub: '112 Reviews • 22 Flagged' },
-    { label: 'Week 3', value: 96, sub: '96 Reviews • 18 Flagged' },
-    { label: 'Week 4', value: 148, sub: '148 Reviews • 29 Flagged' },
-  ];
-
-  const chartPoints = chartPeriod === 'weekly' ? weeklyData : monthlyData;
-  const maxVal = Math.max(...chartPoints.map((p) => p.value));
-
-  // Compute SVG coordinates for viewBox="0 0 540 160"
-  const svgWidth = 540;
-  const svgHeight = 140;
-  const paddingX = 40;
-  const paddingY = 25;
-  const stepX = (svgWidth - paddingX * 2) / (chartPoints.length - 1);
-
-  const coords = chartPoints.map((pt, i) => {
-    const x = paddingX + i * stepX;
-    const y = svgHeight - paddingY - (pt.value / maxVal) * (svgHeight - paddingY * 2);
-    return { ...pt, x, y };
-  });
-
-  const pathD = coords.reduce((acc, curr, i) => {
-    return i === 0 ? `M ${curr.x} ${curr.y}` : `${acc} L ${curr.x} ${curr.y}`;
-  }, '');
-
-  const areaD = `${pathD} L ${coords[coords.length - 1].x} ${svgHeight - paddingY} L ${coords[0].x} ${svgHeight - paddingY} Z`;
+  const processedRuns = runResults.length;
+  const highReliabilityRuns = runResults.filter((r) => r.link_confidence === 'High').length;
+  const candidateFrames = runResults.reduce((acc, r) => acc + (r.best_frames?.length || 0), 0);
 
   return (
     <section id="view-dashboard" className="space-y-5 max-w-[1440px] mx-auto">
@@ -104,7 +62,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div>
           <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Surveillance &amp; ATM Ingestion Overview</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time biometric surveillance telemetry, spatiotemporal cardholder linking, and deterministic frame extraction.
+            Review ATM footage and candidate face frames.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -165,9 +123,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </svg>
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-500">Verified Evidence Packs</div>
+            <div className="text-xs font-medium text-slate-500">High-reliability runs</div>
             <div id="kpiVideosProcessed" className="text-2xl font-semibold font-mono tabular-nums text-slate-900 mt-0.5">
-              {verifiedEvidence}
+              {highReliabilityRuns}
             </div>
             <div className="text-[11px] text-slate-400 mt-0.5">High confidence associations</div>
           </div>
@@ -184,179 +142,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </svg>
           </div>
           <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-500">Court Dossiers</div>
+            <div className="text-xs font-medium text-slate-500">Candidate Face Frames</div>
             <div id="kpiReportsGenerated" className="text-2xl font-semibold font-mono tabular-nums text-slate-900 mt-0.5">
-              {reportsGenerated}
+              {candidateFrames}
             </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Exported PDF evidence sheets</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">Ranked face crops extracted</div>
           </div>
         </div>
       </div>
 
-      {/* Main Charts & Architecture Strip */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Activity Telemetry Chart (7/12) */}
-        <div className="lg:col-span-7 bg-white border border-hairline rounded-md p-4">
-          <div className="flex items-center justify-between pb-3 mb-2 border-b border-hairline">
-            <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">
-                Surveillance Review Activity
-              </h3>
-              <p className="text-[11px] text-slate-500">Daily processed incidents &amp; facial frame extracts</p>
-            </div>
-            <div className="flex items-center gap-1 bg-canvas border border-hairline rounded p-0.5 text-xs">
-              <button
-                id="btnChartWeekly"
-                onClick={() => setChartPeriod('weekly')}
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  chartPeriod === 'weekly' ? 'bg-white shadow-sm text-steel font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Weekly
-              </button>
-              <button
-                id="btnChartMonthly"
-                onClick={() => setChartPeriod('monthly')}
-                className={`px-2.5 py-1 rounded font-medium transition-colors ${
-                  chartPeriod === 'monthly' ? 'bg-white shadow-sm text-steel font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Monthly
-              </button>
-            </div>
-          </div>
-
-          <div className="relative pt-2">
-            <svg id="activityChartSvg" viewBox="0 0 540 160" className="w-full h-44 overflow-visible">
-              <defs>
-                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2563EB" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#2563EB" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-
-              {/* Grid Lines */}
-              <line x1="40" y1="25" x2="500" y2="25" stroke="#E2E8F0" strokeDasharray="3,3" />
-              <line x1="40" y1="65" x2="500" y2="65" stroke="#E2E8F0" strokeDasharray="3,3" />
-              <line x1="40" y1="115" x2="500" y2="115" stroke="#CBD5E1" strokeWidth="1" />
-
-              {/* Area & Stroke */}
-              <path d={areaD} fill="url(#chartGradient)" />
-              <path d={pathD} fill="none" stroke="#2563EB" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-
-              {/* Data Points */}
-              {coords.map((pt, i) => (
-                <g key={i}>
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r={4}
-                    fill="#FFFFFF"
-                    stroke="#1D4ED8"
-                    strokeWidth={2}
-                    className="chart-point"
-                    onMouseEnter={() => {
-                      setTooltipData({
-                        x: pt.x,
-                        y: pt.y - 12,
-                        text: `${pt.label}: ${pt.value} cases reviewed`,
-                        sub: pt.sub,
-                      });
-                    }}
-                    onMouseLeave={() => setTooltipData(null)}
-                  />
-                  <text x={pt.x} y={135} textAnchor="middle" fontSize={11} fill="#64748B" fontFamily="IBM Plex Mono">
-                    {pt.label}
-                  </text>
-                </g>
-              ))}
-            </svg>
-
-            {tooltipData && (
-              <div
-                className="absolute z-30 px-2.5 py-1.5 bg-slate-900 text-white rounded text-[11px] shadow-lg pointer-events-none transform -translate-x-1/2 -translate-y-full"
-                style={{ left: `${(tooltipData.x / svgWidth) * 100}%`, top: `${(tooltipData.y / svgHeight) * 100}%` }}
-              >
-                <div className="font-semibold">{tooltipData.text}</div>
-                <div className="text-[10px] text-slate-300 font-mono">{tooltipData.sub}</div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Forensic Capabilities Architecture Card (5/12) */}
-        <div className="lg:col-span-5 bg-white border border-hairline rounded-md p-4 flex flex-col justify-between">
+      {/* Forensic Capabilities Architecture Strip */}
+      <div className="bg-white border border-hairline rounded-md p-4">
+        <div className="flex items-center justify-between pb-2 mb-3 border-b border-hairline">
           <div>
-            <div className="flex items-center justify-between pb-2 mb-3 border-b border-hairline">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">
-                Pipeline Architecture &amp; Guarantees
-              </h3>
-              <span className="font-mono text-[10px] text-steel font-semibold px-2 py-0.5 rounded bg-steel-tint border border-steel-border">
-                ISO/IEC 27037
-              </span>
-            </div>
-            <ul className="space-y-2 text-xs">
-              <li className="flex items-start gap-2">
-                <span className="text-status-emerald font-bold">✓</span>
-                <div>
-                  <span className="font-semibold text-slate-800">Person Detection &amp; Tracking:</span>
-                  <p className="text-[11px] text-slate-500">MobileNetV3 Faster R-CNN + ByteTrack spatial ATM zone anchoring.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-status-emerald font-bold">✓</span>
-                <div>
-                  <span className="font-semibold text-slate-800">Face Recognition &amp; Embeddings:</span>
-                  <p className="text-[11px] text-slate-500">InsightFace ArcFace 512-d normalized cosine embeddings.</p>
-                </div>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-status-emerald font-bold">✓</span>
-                <div>
-                  <span className="font-semibold text-slate-800">Non-Destructive Enhancement:</span>
-                  <p className="text-[11px] text-slate-500">
-                    Original files untouched. Restored crops have permanent burned ENHANCED stamp.
-                  </p>
-                </div>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-status-emerald font-bold">✓</span>
-                <div>
-                  <span className="font-semibold text-slate-800">No Ultralytics / YOLOv8:</span>
-                  <p className="text-[11px] text-slate-500">Strictly verified repository hard rules compliance.</p>
-                </div>
-              </li>
-            </ul>
-
-            {publicConfig?.model_labels && (
-              <div className="mt-3 pt-2.5 border-t border-hairline">
-                <div className="text-[10px] font-mono uppercase text-slate-500 font-semibold mb-1">
-                  Active Pipeline Model Labels:
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {publicConfig.model_labels.map((lbl, idx) => (
-                    <span
-                      key={idx}
-                      className={`font-mono text-[10px] px-2 py-0.5 rounded border font-semibold ${
-                        lbl === 'MOCK'
-                          ? 'bg-red-50 text-red-700 border-red-300'
-                          : 'bg-steel-tint text-steel border-steel-border'
-                      }`}
-                    >
-                      {lbl}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">
+              Pipeline Architecture &amp; Guarantees
+            </h3>
+            <p className="text-[11px] text-slate-500">Deterministic face candidate extraction parameters and integrity standards</p>
           </div>
-          <button
-            onClick={onOpenCapabilities}
-            className="w-full mt-3 py-2 text-xs font-medium text-steel bg-steel-tint hover:bg-blue-100 border border-steel-border rounded transition-colors text-center shadow-sm"
-          >
-            View Full Forensic Capabilities Matrix →
-          </button>
+          <span className="font-mono text-[10px] text-steel font-semibold px-2 py-0.5 rounded bg-steel-tint border border-steel-border">
+            ISO/IEC 27037
+          </span>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          <div className="p-2.5 rounded bg-canvas border border-hairline">
+            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <span className="text-status-emerald font-bold">✓</span>
+              Person Detection &amp; Tracking
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">MobileNetV3 Faster R-CNN + ByteTrack spatial ATM zone anchoring.</p>
+          </div>
+          <div className="p-2.5 rounded bg-canvas border border-hairline">
+            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <span className="text-status-emerald font-bold">✓</span>
+              Face Detection &amp; Embeddings
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">InsightFace ArcFace 512-d normalized cosine embeddings.</p>
+          </div>
+          <div className="p-2.5 rounded bg-canvas border border-hairline">
+            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <span className="text-status-emerald font-bold">✓</span>
+              Non-Destructive Enhancement
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">Original files untouched. Restored crops have permanent burned ENHANCED stamp.</p>
+          </div>
+          <div className="p-2.5 rounded bg-canvas border border-hairline">
+            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <span className="text-status-emerald font-bold">✓</span>
+              No Ultralytics / YOLOv8
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">Strict repository hard rules compliance.</p>
+          </div>
+        </div>
+
+        {publicConfig?.model_labels && (
+          <div className="mt-3 pt-2.5 border-t border-hairline flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-mono uppercase text-slate-500 font-semibold mr-1">
+                Active Pipeline Model Labels:
+              </span>
+              {publicConfig.model_labels.map((lbl, idx) => (
+                <span
+                  key={idx}
+                  className={`font-mono text-[10px] px-2 py-0.5 rounded border font-semibold ${
+                    lbl === 'MOCK'
+                      ? 'bg-red-50 text-red-700 border-red-300'
+                      : 'bg-steel-tint text-steel border-steel-border'
+                  }`}
+                >
+                  {lbl}
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={onOpenCapabilities}
+              className="text-xs font-medium text-steel hover:underline"
+            >
+              Full Forensic Matrix →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Recent Investigations Table */}
@@ -388,63 +253,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline text-xs font-mono">
-              {runResults.map((r) => {
-                const bestF = r.best_frames[0];
-                const qualityScore = bestF ? Math.round(bestF.quality_score > 1 ? bestF.quality_score : bestF.quality_score * 100) : 92;
+              {runResults.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-slate-400 font-mono">
+                    No data yet
+                  </td>
+                </tr>
+              ) : (
+                runResults.map((r) => {
+                  const bestF = r.best_frames?.[0];
+                  const qualityScore = bestF
+                    ? Math.round(bestF.quality_score > 1 ? bestF.quality_score : bestF.quality_score * 100)
+                    : null;
+                  const matchedClip = clips.find((c) => c.id === r.clip_id);
+                  const atmLabel = matchedClip?.atm_id || (typeof r.clip_id === 'string' ? r.clip_id : `Clip ${r.clip_id}`);
 
-                return (
-                  <tr key={r.run_id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-900">EV-{r.run_id}</div>
-                      <div className="text-[10px] text-slate-500 font-sans truncate max-w-[180px]">
-                        Clip: {r.clip_id}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-700">
-                      <div>ATM-JPR-014</div>
-                      <div className="text-[10px] text-slate-400 font-sans">Vestibule Cam</div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                      {r.transaction_time ? r.transaction_time.replace('T', ' ').substring(0, 19) : '2026-11-26 21:14:24'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase ${
-                          r.link_confidence === 'High'
-                            ? 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder'
-                            : r.link_confidence === 'Medium'
-                            ? 'bg-status-amberBg text-status-amber border-status-amberBorder'
-                            : 'bg-status-crimsonBg text-status-crimson border-status-crimsonBorder'
-                        }`}
-                      >
-                        {r.link_confidence || 'High'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-status-emerald tabular-nums">
-                        {qualityScore}
-                      </span>
-                      <span className="text-slate-400 text-[10px]"> / 100</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-[10px] uppercase px-2 py-0.5 rounded border bg-status-emeraldBg text-status-emerald border-status-emeraldBorder font-semibold">
-                        DONE
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => {
-                          onSelectRun(r.run_id);
-                          onNavigate('inspector');
-                        }}
-                        className="px-2.5 py-1 text-xs font-medium text-steel bg-steel-tint hover:bg-steel hover:text-white border border-steel-border rounded transition-colors"
-                      >
-                        Inspect
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr key={r.run_id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900">EV-{r.run_id}</div>
+                        <div className="text-[10px] text-slate-500 font-sans truncate max-w-[180px]">
+                          Clip: {r.clip_id}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-700">
+                        <div>{atmLabel}</div>
+                        <div className="text-[10px] text-slate-400 font-sans">
+                          {matchedClip?.notes || 'Vestibule Cam'}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                        {r.transaction_time ? r.transaction_time.replace('T', ' ').substring(0, 19) : '—'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase ${
+                            r.link_confidence === 'High'
+                              ? 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder'
+                              : r.link_confidence === 'Medium'
+                              ? 'bg-status-amberBg text-status-amber border-status-amberBorder'
+                              : 'bg-status-crimsonBg text-status-crimson border-status-crimsonBorder'
+                          }`}
+                        >
+                          {r.link_confidence || '—'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {qualityScore !== null ? (
+                          <>
+                            <span className="font-semibold text-status-emerald tabular-nums">
+                              {qualityScore}
+                            </span>
+                            <span className="text-slate-400 text-[10px]"> / 100</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-[10px] uppercase px-2 py-0.5 rounded border bg-status-emeraldBg text-status-emerald border-status-emeraldBorder font-semibold">
+                          DONE
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => {
+                            onSelectRun(r.run_id);
+                            onNavigate('inspector');
+                          }}
+                          className="px-2.5 py-1 text-xs font-medium text-steel bg-steel-tint hover:bg-steel hover:text-white border border-steel-border rounded transition-colors"
+                        >
+                          Inspect
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

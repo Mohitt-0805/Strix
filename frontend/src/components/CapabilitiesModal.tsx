@@ -111,7 +111,7 @@ export const CapabilitiesModal: React.FC<CapabilitiesModalProps> = ({ isOpen, on
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-slate-900">Demonstration ML Modules</h4>
               <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-steel-tint text-steel border border-steel-border">
-                6 Verified
+                6 Configured
               </span>
             </div>
             <ul className="space-y-2">

@@ -44,7 +44,7 @@ export interface MockCase {
   timestamp: string;
   clipsCount: number;
   reviewer: string;
-  status: 'In Progress' | 'Pending Review' | 'Verified' | 'Flagged' | 'Archived' | 'Closed' | 'Under Review';
+  status: 'In Progress' | 'Pending Review' | 'Completed' | 'Flagged' | 'Archived' | 'Closed' | 'Under Review';
   lastUpdated: string;
   amount: string;
   cardLast4: string;
@@ -100,7 +100,7 @@ export const INITIAL_CASES: MockCase[] = [
                 served_from_demo_pack: true,
                 events: [
                     { label: 'Card Inserted', time: 4.0, clock: '21:14:02' },
-                    { label: 'PIN Verified', time: 11.2, clock: '21:14:09' },
+                    { label: 'PIN Entered', time: 11.2, clock: '21:14:09' },
                     { label: 'Cash Dispensed', time: 22.0, clock: '21:14:20' },
                     { label: 'Card Retrieved', time: 28.5, clock: '21:14:26' },
                     { label: 'Session End', time: 33.0, clock: '21:14:31' }
@@ -197,7 +197,7 @@ export const INITIAL_CASES: MockCase[] = [
                 sha256: '3c7e1a05f92d4b8c1e6a7f09d2c3b4a5e6f708192a3b4c5d6e7f8091a2b3c4d5',
                 events: [
                     { label: 'Card Inserted', time: 3.5, clock: '19:47:50' },
-                    { label: 'PIN Verified', time: 10.5, clock: '19:47:57' },
+                    { label: 'PIN Entered', time: 10.5, clock: '19:47:57' },
                     { label: 'Cash Dispensed', time: 21.8, clock: '19:48:08' },
                     { label: 'Card Retrieved', time: 27.6, clock: '19:48:14' },
                     { label: 'Session End', time: 32.4, clock: '19:48:19' }
@@ -222,7 +222,7 @@ export const INITIAL_CASES: MockCase[] = [
                 timestamp: '2026-11-25 16:22:05',
                 clipsCount: 2,
                 reviewer: 'M. Nair',
-                status: 'Verified',
+                status: 'Completed',
                 lastUpdated: 'Yesterday',
                 amount: '₹40,000',
                 cardLast4: '2271',
@@ -232,7 +232,7 @@ export const INITIAL_CASES: MockCase[] = [
                 sha256: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
                 events: [
                     { label: 'Card Inserted', time: 4.5, clock: '16:21:44' },
-                    { label: 'PIN Verified', time: 11.5, clock: '16:21:51' },
+                    { label: 'PIN Entered', time: 11.5, clock: '16:21:51' },
                     { label: 'Cash Dispensed', time: 23.0, clock: '16:22:03' },
                     { label: 'Card Retrieved', time: 29.0, clock: '16:22:09' },
                     { label: 'Session End', time: 33.5, clock: '16:22:13' }
@@ -267,7 +267,7 @@ export const INITIAL_CASES: MockCase[] = [
                 sha256: 'f9e8d7c6b5a4938271605f4e3d2c1b0af9e8d7c6b5a4938271605f4e3d2c1b0a',
                 events: [
                     { label: 'Card Inserted', time: 3.0, clock: '02:39:25' },
-                    { label: 'PIN Verified', time: 12.0, clock: '02:39:34' },
+                    { label: 'PIN Entered', time: 12.0, clock: '02:39:34' },
                     { label: 'Cash Dispensed', time: 23.2, clock: '02:39:45' },
                     { label: 'Card Retrieved', time: 29.5, clock: '02:39:51' },
                     { label: 'Session End', time: 34.0, clock: '02:39:56' }
@@ -302,7 +302,7 @@ export const INITIAL_CASES: MockCase[] = [
                 sha256: '4b5c6d7e8f90123456789abcdef012344b5c6d7e8f90123456789abcdef01234',
                 events: [
                     { label: 'Card Inserted', time: 4.8, clock: '18:05:00' },
-                    { label: 'PIN Verified', time: 11.0, clock: '18:05:06' },
+                    { label: 'PIN Entered', time: 11.0, clock: '18:05:06' },
                     { label: 'Cash Dispensed', time: 22.5, clock: '18:05:18' },
                     { label: 'Card Retrieved', time: 28.0, clock: '18:05:23' },
                     { label: 'Session End', time: 32.0, clock: '18:05:27' }
@@ -337,7 +337,7 @@ export const INITIAL_CASES: MockCase[] = [
                 sha256: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d',
                 events: [
                     { label: 'Card Inserted', time: 4.2, clock: '22:50:42' },
-                    { label: 'PIN Verified', time: 11.4, clock: '22:50:49' },
+                    { label: 'PIN Entered', time: 11.4, clock: '22:50:49' },
                     { label: 'Cash Dispensed', time: 23.0, clock: '22:51:01' },
                     { label: 'Card Retrieved', time: 29.0, clock: '22:51:07' },
                     { label: 'Session End', time: 33.2, clock: '22:51:11' }
@@ -383,7 +383,7 @@ export const INITIAL_AUDIT_LOGS: MockAuditEntry[] = [
                 investigator: 'M. Nair (INV-0215)',
                 action: 'Inspection',
                 refId: 'CASE-2026-012 / TXN-904762',
-                details: 'Verified cardholder match confidence 99.1% against dispense timestamp',
+                details: 'Candidate cardholder match confidence 99.1% against dispense timestamp',
                 hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90'
             },
             {

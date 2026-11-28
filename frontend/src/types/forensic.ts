@@ -1,8 +1,10 @@
 /**
  * Strix Forensic Types strictly matching the real FastAPI backend contract:
- * - frontend/BACKEND_API.md
+ * - backend/API.md
  * - backend/app/schemas.py
  * - pipeline/contract.py
+ *
+ * Keeps legacy/mock fields optional so demo mode and mock packs compile smoothly.
  */
 
 export interface User {
@@ -29,19 +31,27 @@ export interface Metrics {
 }
 
 export interface Enhancement {
-  enhanced_path: string;
+  enhanced_path?: string;
   method: string;
   scale: number;
   model_version: string;
   crop_box: [number, number, number, number];
   search_embedding_source: string;
   enhanced_url?: string;
+  original_url?: string;
   signed_enhanced_url?: string;
+  run_id?: number | string;
+  frame_id?: number | string;
+  face_box?: [number, number, number, number] | null;
+  cached?: boolean;
+  warning?: string;
+  score_diff?: number;
+  secondary_warning?: string;
 }
 
 export interface Frame {
   frame_id: number | string;
-  frame_path: string;
+  frame_path?: string;
   timestamp_sec: number;
   quality_score: number;
   reliability: 'High' | 'Medium' | 'Low';
@@ -51,11 +61,13 @@ export interface Frame {
   enhancement: Enhancement | null;
   metrics: Metrics;
   embedding_path?: string;
-  signed_crop_url?: string;
-  signed_frame_url?: string;
+  selected?: boolean;
   crop_url?: string;
   frame_url?: string;
   image_url?: string;
+  enhanced_url?: string | null;
+  signed_crop_url?: string;
+  signed_frame_url?: string;
   match_ready?: boolean | null;
   rank_reason?: string | null;
   crop_path?: string | null;
@@ -63,7 +75,7 @@ export interface Frame {
 }
 
 export interface RunResult {
-  run_id: string;
+  run_id: number | string;
   clip_id: string;
   transaction_time: string;
   person_track_id: number | null;
@@ -72,10 +84,17 @@ export interface RunResult {
   link_reason?: string | null;
   link_low_margin?: boolean;
   selection_reason?: string | null;
+  show_selection_reason?: boolean;
+  video_url?: string;
+  pipeline_mode?: string;
+  banner?: string | null;
+  notice?: string | null;
   timings_ms?: Record<string, number> | null;
   served_from_demo_pack?: boolean;
   selected_frame_ids?: (string | number)[];
   warnings?: string[];
+  requested_sample_fps?: number | null;
+  effective_sample_fps?: number | null;
   coverage_start_sec?: number | null;
   coverage_end_sec?: number | null;
 }
@@ -128,71 +147,171 @@ export interface ProcessClipRequest {
 }
 
 export interface ProcessClipResponse {
-  run_id: string;
+  run_id: number | string;
   status: 'queued' | 'running' | 'done' | 'failed';
 }
 
 export interface RunStatus {
-  run_id: string;
+  run_id: number | string;
   clip_id: string;
   status: 'queued' | 'running' | 'done' | 'failed';
   stage?: string;
-  progress?: number; // 0 to 100
+  progress?: number | null; // 0.0 to 1.0 (or null)
   progress_message?: string;
-  error_code?: string;
-  error_message?: string;
-  error_advice?: string;
+  error_code?: string | null;
+  error_message?: string | null;
+  error_advice?: string | null;
   transaction_time?: string;
+  tx_offset_sec?: number | null;
   window_sec?: number;
   sample_fps?: number;
+  tracker?: string;
+  atm_id?: string | null;
+  pipeline_mode?: string;
+  served_from_demo_pack?: boolean;
+  link_low_margin?: boolean;
+  requested_sample_fps?: number | null;
+  effective_sample_fps?: number | null;
+  warnings?: string[];
+  coverage_start_sec?: number | null;
+  coverage_end_sec?: number | null;
+  created_by?: number;
   created_at?: string;
-  finished_at?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
   selected_frame_ids?: (string | number)[];
+  result?: RunResult | null;
 }
 
 export interface SelectionRequest {
   frame_ids: (string | number)[];
 }
 
+export interface SelectionResponse {
+  run_id: number | string;
+  selected_frame_ids: (string | number)[];
+}
+
 export interface EnhanceFrameRequest {
-  crop_box: [number, number, number, number]; // [naturalX, naturalY, naturalW, naturalH]
+  crop_box: [number, number, number, number]; // [naturalX, naturalY, naturalW, naturalH] in full-frame pixels
   scale: 2 | 4;
-  method?: 'lanczos' | 'espcn' | string;
+  method?: 'lanczos' | string;
 }
 
 export interface SearchRequest {
-  run_id: string;
+  run_id: number | string;
   frame_id: string | number;
   top_k?: number;
   best_per_clip?: boolean;
+  include_short_tracks?: boolean;
 }
 
 export interface SearchMatch {
+  source?: 'run' | 'index' | 'original' | 'enhanced';
+  track_id?: number | null;
+  short_track?: boolean;
   clip_id: string;
   filename: string;
-  run_id: string;
+  run_id?: number | string | null;
+  index_id?: number | string | null;
   frame_id: string | number;
+  t?: number | null;
   timestamp_sec: number;
   score: number;
   reliability: 'High' | 'Medium' | 'Low';
   flags: string[];
-  source: 'original' | 'enhanced';
-  track_id: number;
-  short_track?: boolean;
-  crop_url?: string;
-  frame_url?: string;
+  flag_scores?: Record<string, number> | null;
+  crop_url?: string | null;
+  frame_url?: string | null;
   thumbnail_url?: string;
   signed_crop_url?: string;
   signed_frame_url?: string;
 }
 
 export interface SearchResult {
-  search_id: string;
-  run_id: string;
+  search_id: number | string;
+  run_id: number | string;
   frame_id: string | number;
+  top_k?: number;
   matches: SearchMatch[];
   notice: string;
   score_note: string;
+  scope?: string;
+  created_at?: string;
+}
+
+export interface IndexClipRequest {
+  start_sec?: number;
+  end_sec?: number | null;
+  sample_fps?: number;
+  tracker?: string;
+  faces_per_track?: number;
+  atm_id?: string;
+}
+
+export interface IndexClipResponse {
+  index_id: number | string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+}
+
+export interface IndexFace {
+  id: number | string;
+  track_id: number;
+  t: number;
+  quality_score: number;
+  reliability: 'High' | 'Medium' | 'Low';
+  match_ready?: boolean | null;
+  flags: string[];
+  flag_scores?: Record<string, number> | null;
+  face_box?: [number, number, number, number] | null;
+  short_track?: boolean;
+  crop_url?: string | null;
+  frame_url?: string | null;
+}
+
+export interface IndexTrack {
+  track_id: number;
+  first_t: number;
+  last_t: number;
+  n_observations: number;
+  short_track: boolean;
+  confidence_note?: string | null;
+  dwell_sec_in_zone: number;
+  reason?: string | null;
+  face_count: number;
+  faces: IndexFace[];
+}
+
+export interface IndexStatus {
+  index_id: number | string;
+  clip_id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  stage?: string;
+  progress?: number | null;
+  progress_message?: string;
+  error_code?: string | null;
+  error_message?: string | null;
+  error_advice?: string | null;
+  start_sec?: number;
+  end_sec?: number | null;
+  sample_fps?: number;
+  tracker?: string;
+  faces_per_track?: number;
+  atm_id?: string | null;
+  total_embeddings?: number;
+  tracks?: IndexTrack[];
+  timings_ms?: Record<string, number> | null;
+  pipeline_mode?: string;
+  served_from_demo_pack?: boolean;
+  warnings?: string[];
+  requested_sample_fps?: number | null;
+  effective_sample_fps?: number | null;
+  coverage_start_sec?: number | null;
+  coverage_end_sec?: number | null;
+  created_by?: number;
+  created_at?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
 }
 
 export interface AuditEntry {
@@ -227,6 +346,9 @@ export interface AuditVerifyResponse {
 export interface PublicConfig {
   pipeline_mode: 'fake' | 'real';
   pipeline_ready?: boolean;
+  warmup_state?: string;
+  warmup?: Record<string, any>;
+  demo_pack_enabled?: boolean;
   banner: string | null;
   notice: string;
   limits: {

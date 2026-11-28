@@ -9,7 +9,7 @@ interface AppShellProps {
   activeRunStatus?: string;
   isServedFromDemo?: boolean;
   clipCount: number;
-  auditCount: number;
+  auditCount?: number;
   onSignOut: () => void;
   onSaveEvidence?: () => void;
   onRunFullDemo?: () => void;
@@ -62,7 +62,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const getStatusColor = (status: string) => {
     switch (status.toUpperCase()) {
       case 'DONE':
-      case 'VERIFIED':
+      case 'COMPLETED':
         return {
           text: 'text-status-emerald',
           dot: 'bg-status-emerald',
@@ -253,11 +253,11 @@ export const AppShell: React.FC<AppShellProps> = ({
               <span className="ml-auto text-[9px] font-mono uppercase bg-slate-800 text-amber-400 border border-amber-900/40 px-1 rounded">
                 Admin
               </span>
-            ) : (
+            ) : auditCount !== undefined ? (
               <span id="navAuditCount" className="ml-auto font-mono text-[11px] text-slate-400 tabular-nums">
                 {auditCount}
               </span>
-            )}
+            ) : null}
           </button>
         </nav>
 
