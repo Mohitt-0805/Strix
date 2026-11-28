@@ -18,6 +18,11 @@ export interface MockCandidate {
   dark: number;
   glare: boolean;
   handOcc?: boolean;
+  reliability?: 'High' | 'Medium' | 'Low';
+  flags?: string[];
+  flag_scores?: Record<string, number>;
+  secondary_score?: number;
+  secondary_warning?: string;
 }
 
 export interface MockEvent {
@@ -58,6 +63,7 @@ export interface MockCase {
   candidates: MockCandidate[];
   notes?: string;
   clipId?: string;
+  served_from_demo_pack?: boolean;
 }
 
 export interface MockAuditEntry {
@@ -89,6 +95,7 @@ export const INITIAL_CASES: MockCase[] = [
                 quality: 92,
                 conditions: ['Low-Light'],
                 sha256: '8f4a2c91d7e0b34f56a12c89e4b7d103a2c4f8e9102b3d4a5c6e7f8091a2b3c4',
+                served_from_demo_pack: true,
                 events: [
                     { label: 'Card Inserted', time: 4.0, clock: '21:14:02' },
                     { label: 'PIN Verified', time: 11.2, clock: '21:14:09' },
@@ -99,10 +106,72 @@ export const INITIAL_CASES: MockCase[] = [
                 faceProfile: { skinTone: 170, hairStyle: 'short', glasses: false, cap: false, beard: true, seed: 14 },
                 primaryCandidateIdx: 0,
                 candidates: [
-                    { id: 1, label: 'Frontal Peak', time: 18.4, yaw: 3, pitch: -2, score: 92, metrics: { sharpness: 91, illumination: 88, pose: 96, occlusion: 95, resolution: 90 }, blur: 0.3, dark: 0.16, glare: false },
-                    { id: 2, label: 'Slight Blur', time: 13.6, yaw: 11, pitch: -4, score: 81, metrics: { sharpness: 72, illumination: 84, pose: 86, occlusion: 89, resolution: 79 }, blur: 1.4, dark: 0.18, glare: false },
-                    { id: 3, label: 'Off-Angle 29°', time: 7.5, yaw: 29, pitch: -6, score: 67, metrics: { sharpness: 76, illumination: 78, pose: 51, occlusion: 81, resolution: 72 }, blur: 0.8, dark: 0.20, glare: false },
-                    { id: 4, label: 'Hand Occluded', time: 11.5, yaw: 14, pitch: -12, score: 56, metrics: { sharpness: 70, illumination: 72, pose: 68, occlusion: 35, resolution: 65 }, blur: 0.9, dark: 0.22, glare: false, handOcc: true }
+                    {
+                        id: 1,
+                        label: 'Frontal Peak',
+                        time: 18.4,
+                        yaw: 3,
+                        pitch: -2,
+                        score: 92,
+                        reliability: 'High',
+                        flags: ['low_light'],
+                        flag_scores: { low_light: 0.88, frontal_alignment: 0.96 },
+                        secondary_score: 0.94,
+                        metrics: { sharpness: 91, illumination: 88, pose: 96, occlusion: 95, resolution: 90 },
+                        blur: 0.3,
+                        dark: 0.16,
+                        glare: false
+                    },
+                    {
+                        id: 2,
+                        label: 'Slight Blur',
+                        time: 13.6,
+                        yaw: 11,
+                        pitch: -4,
+                        score: 81,
+                        reliability: 'Medium',
+                        flags: ['blur', 'low_light'],
+                        flag_scores: { blur: 0.74, low_light: 0.82 },
+                        secondary_score: 0.85,
+                        metrics: { sharpness: 72, illumination: 84, pose: 86, occlusion: 89, resolution: 79 },
+                        blur: 1.4,
+                        dark: 0.18,
+                        glare: false
+                    },
+                    {
+                        id: 3,
+                        label: 'Off-Angle 29°',
+                        time: 7.5,
+                        yaw: 29,
+                        pitch: -6,
+                        score: 67,
+                        reliability: 'Medium',
+                        flags: ['partial_face'],
+                        flag_scores: { partial_face: 0.65 },
+                        secondary_score: 0.86,
+                        secondary_warning: 'Enhancement changed the result (>0.15 delta). Treat with caution.',
+                        metrics: { sharpness: 76, illumination: 78, pose: 51, occlusion: 81, resolution: 72 },
+                        blur: 0.8,
+                        dark: 0.20,
+                        glare: false
+                    },
+                    {
+                        id: 4,
+                        label: 'Hand Occluded',
+                        time: 11.5,
+                        yaw: 14,
+                        pitch: -12,
+                        score: 56,
+                        reliability: 'Low',
+                        flags: ['occlusion', 'hand_covering'],
+                        flag_scores: { occlusion: 0.91, hand_covering: 0.84 },
+                        secondary_score: 0.58,
+                        metrics: { sharpness: 70, illumination: 72, pose: 68, occlusion: 35, resolution: 65 },
+                        blur: 0.9,
+                        dark: 0.22,
+                        glare: false,
+                        handOcc: true
+                    }
                 ]
             },
             {

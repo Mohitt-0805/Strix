@@ -14,9 +14,31 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onLoginSuccess }) => {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const executeLogin = async (cleanEmail: string, cleanPwd: string) => {
+    setIsLoading(true);
+    setErrorText(null);
+    try {
+      localStorage.removeItem('strix_token');
+      localStorage.removeItem('strix_user');
+      sessionStorage.removeItem('strix_token');
+      sessionStorage.removeItem('strix_user');
+
+      const res = await api.login(cleanEmail, cleanPwd);
+      onLoginSuccess(res.user);
+    } catch (err: any) {
+      localStorage.removeItem('strix_token');
+      localStorage.removeItem('strix_user');
+      sessionStorage.removeItem('strix_token');
+      sessionStorage.removeItem('strix_user');
+
+      setErrorText(err?.message || 'Authentication failed. Please verify credentials.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorText(null);
 
     const cleanEmail = email.trim();
     const cleanPwd = password.trim();
@@ -26,50 +48,29 @@ export const LoginGate: React.FC<LoginGateProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const res = await api.login(cleanEmail, cleanPwd);
-      onLoginSuccess(res.user);
-    } catch (err: any) {
-      setErrorText(err.response?.data?.detail || 'Authentication failed. Please verify credentials.');
-    } finally {
-      setIsLoading(false);
-    }
+    await executeLogin(cleanEmail, cleanPwd);
   };
 
-  const handleQuickDemo = (mode: 'investigator' | 'admin') => {
+  const handleQuickDemo = async (mode: 'investigator' | 'admin') => {
     setErrorText(null);
+    let targetEmail = '';
+    let targetPwd = '';
+
     if (mode === 'admin') {
-      setEmail('admin.forensics@police.gov.in');
-      setPassword('strix-admin-2026');
+      targetEmail = 'admin.forensics@police.gov.in';
+      targetPwd = 'strix-admin-2026';
+      setEmail(targetEmail);
+      setPassword(targetPwd);
       setRole('System Administrator');
-      const adminUser: User = {
-        id: 1,
-        username: 'admin',
-        role: 'admin',
-        full_name: 'SysAdmin A. Verma',
-        active: true,
-        created_at: new Date().toISOString(),
-      };
-      localStorage.setItem('strix_token', 'demo_admin_jwt');
-      localStorage.setItem('strix_user', JSON.stringify(adminUser));
-      onLoginSuccess(adminUser);
     } else {
-      setEmail('r.sharma@police.gov.in');
-      setPassword('strix-forensic-2026');
+      targetEmail = 'r.sharma@police.gov.in';
+      targetPwd = 'strix-forensic-2026';
+      setEmail(targetEmail);
+      setPassword(targetPwd);
       setRole('Investigator (Case Analyst)');
-      const invUser: User = {
-        id: 2,
-        username: 'r.sharma',
-        role: 'investigator',
-        full_name: 'Insp. R. Sharma',
-        active: true,
-        created_at: new Date().toISOString(),
-      };
-      localStorage.setItem('strix_token', 'demo_inv_jwt');
-      localStorage.setItem('strix_user', JSON.stringify(invUser));
-      onLoginSuccess(invUser);
     }
+
+    await executeLogin(targetEmail, targetPwd);
   };
 
   return (

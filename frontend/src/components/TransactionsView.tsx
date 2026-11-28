@@ -221,6 +221,11 @@ const TransactionRow: React.FC<TransactionRowProps> = ({ caseItem, onOpenCase, g
       <td className="py-2.5 px-4">
         <div className="font-mono font-semibold text-slate-900">{caseItem.caseId}</div>
         <div className="font-mono text-[11px] text-steel">{caseItem.txnId}</div>
+        {caseItem.served_from_demo_pack && (
+          <span className="inline-block mt-1 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase">
+            precomputed demo result
+          </span>
+        )}
       </td>
       <td className="py-2.5 px-4">
         <div className="font-mono font-medium text-slate-800">{caseItem.atmId}</div>

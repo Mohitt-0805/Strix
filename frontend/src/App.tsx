@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User } from '@/types/forensic';
+import { User, PublicConfig } from '@/types/forensic';
 import { INITIAL_CASES, INITIAL_AUDIT_LOGS, MockCase, MockAuditEntry } from '@/lib/mockData';
-import { api } from '@/lib/api';
+import { api, isMockMode, MOCK_MODE, API_BASE_URL } from '@/lib/api';
 import { LoginGate } from '@/components/LoginGate';
 import { AppShell } from '@/components/AppShell';
 import { DashboardView } from '@/components/DashboardView';
@@ -23,6 +23,22 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<MockAuditEntry[]>(INITIAL_AUDIT_LOGS);
   const [capabilitiesModalOpen, setCapabilitiesModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
+  const [backendUnreachable, setBackendUnreachable] = useState<boolean>(false);
+
+  useEffect(() => {
+    api
+      .getPublicConfig()
+      .then((cfg) => {
+        setPublicConfig(cfg);
+        setBackendUnreachable(false);
+      })
+      .catch(() => {
+        if (!isMockMode) {
+          setBackendUnreachable(true);
+        }
+      });
+  }, []);
 
   useEffect(() => {
     const handleAuthExpired = () => {
@@ -119,55 +135,104 @@ export const App: React.FC = () => {
     showToast('Demo complete! Active on Case Inspector.');
   };
 
+  const renderTopBanners = () => (
+    <>
+      {isMockMode && (
+        <div
+          id="mockRibbon"
+          className="bg-red-600 text-white text-xs font-bold tracking-widest text-center py-1 uppercase shadow-sm sticky top-0 z-[100] border-b border-red-700 select-none"
+        >
+          MOCK DATA, NOT A REAL RESULT
+        </div>
+      )}
+      {publicConfig?.banner && (
+        <div
+          id="configBanner"
+          className="bg-slate-900 text-amber-300 text-xs font-mono font-medium px-4 py-1 text-center border-b border-slate-800 sticky top-0 z-[90]"
+        >
+          ⚠ {publicConfig.banner}
+        </div>
+      )}
+      {backendUnreachable && !isMockMode && (
+        <div
+          id="backendUnreachableBanner"
+          className="bg-amber-600 text-white text-xs font-semibold px-4 py-1.5 flex items-center justify-between border-b border-amber-700 sticky top-0 z-[95]"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-bold">NOTICE:</span>
+            <span>
+              Backend not reachable at {API_BASE_URL}. Running in strict mode (no invented data). Start backend server to
+              authenticate.
+            </span>
+          </div>
+          <span className="font-mono text-[10px] uppercase tracking-wide bg-amber-800/80 px-2 py-0.5 rounded">
+            Backend Not Reachable
+          </span>
+        </div>
+      )}
+    </>
+  );
+
   if (!user) {
-    return <LoginGate onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <div className="min-h-screen flex flex-col">
+        {renderTopBanners()}
+        <div className="flex-1 relative">
+          <LoginGate onLoginSuccess={handleLoginSuccess} />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <>
-      <AppShell
-        user={user}
-        currentView={currentView}
-        onNavigate={setCurrentView}
-        activeCase={activeCase}
-        txnCount={cases.length}
-        auditCount={auditLogs.length}
-        onSignOut={handleSignOut}
-        onSaveCase={() => handleSaveActiveCase()}
-        onRunFullDemo={handleRunFullDemo}
-      >
-        {currentView === 'dashboard' && (
-          <DashboardView
-            cases={cases}
-            onNavigate={setCurrentView}
-            onOpenCase={handleOpenCase}
-            onCycleStatus={handleCycleStatus}
-            onOpenCapabilities={() => setCapabilitiesModalOpen(true)}
-          />
-        )}
+    <div className="min-h-screen flex flex-col">
+      {renderTopBanners()}
+      <div className="flex-1 overflow-hidden">
+        <AppShell
+          user={user}
+          currentView={currentView}
+          onNavigate={setCurrentView}
+          activeCase={activeCase}
+          txnCount={cases.length}
+          auditCount={auditLogs.length}
+          onSignOut={handleSignOut}
+          onSaveCase={() => handleSaveActiveCase()}
+          onRunFullDemo={handleRunFullDemo}
+        >
+          {currentView === 'dashboard' && (
+            <DashboardView
+              cases={cases}
+              publicConfig={publicConfig}
+              onNavigate={setCurrentView}
+              onOpenCase={handleOpenCase}
+              onCycleStatus={handleCycleStatus}
+              onOpenCapabilities={() => setCapabilitiesModalOpen(true)}
+            />
+          )}
 
-        {currentView === 'transactions' && (
-          <TransactionsView cases={cases} onOpenCase={handleOpenCase} onNavigate={setCurrentView} />
-        )}
+          {currentView === 'transactions' && (
+            <TransactionsView cases={cases} onOpenCase={handleOpenCase} onNavigate={setCurrentView} />
+          )}
 
-        {currentView === 'inspector' && (
-          <CaseInspectorView
-            activeCase={activeCase}
-            onSaveCase={handleSaveActiveCase}
-            onAuditAction={addAuditEntry}
-          />
-        )}
+          {currentView === 'inspector' && (
+            <CaseInspectorView
+              activeCase={activeCase}
+              onSaveCase={handleSaveActiveCase}
+              onAuditAction={addAuditEntry}
+            />
+          )}
 
-        {currentView === 'ingest' && (
-          <IngestFootageView
-            onCaseCreated={handleCaseCreated}
-            onOpenCase={handleOpenCase}
-            onAuditAction={addAuditEntry}
-          />
-        )}
+          {currentView === 'ingest' && (
+            <IngestFootageView
+              onCaseCreated={handleCaseCreated}
+              onOpenCase={handleOpenCase}
+              onAuditAction={addAuditEntry}
+            />
+          )}
 
-        {currentView === 'audit' && <AuditTrailView auditLogs={auditLogs} />}
-      </AppShell>
+          {currentView === 'audit' && <AuditTrailView auditLogs={auditLogs} />}
+        </AppShell>
+      </div>
 
       <CapabilitiesModal isOpen={capabilitiesModalOpen} onClose={() => setCapabilitiesModalOpen(false)} />
 
@@ -178,6 +243,6 @@ export const App: React.FC = () => {
           <span>{toastMessage}</span>
         </div>
       )}
-    </>
+    </div>
   );
 };

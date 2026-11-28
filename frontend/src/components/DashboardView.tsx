@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { MockCase } from '@/lib/mockData';
+import { PublicConfig } from '@/types/forensic';
 
 interface DashboardViewProps {
   cases: MockCase[];
+  publicConfig?: PublicConfig | null;
   onNavigate: (view: string) => void;
   onOpenCase: (caseObj: MockCase) => void;
   onCycleStatus: (caseId: string) => void;
@@ -11,6 +13,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   cases,
+  publicConfig,
   onNavigate,
   onOpenCase,
   onCycleStatus,
@@ -344,6 +347,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </li>
             </ul>
+
+            {publicConfig?.model_labels && (
+              <div className="mt-3 pt-2.5 border-t border-hairline">
+                <div className="text-[10px] font-mono uppercase text-slate-500 font-semibold mb-1">
+                  Active Pipeline Model Labels:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {publicConfig.model_labels.map((lbl, idx) => (
+                    <span
+                      key={idx}
+                      className={`font-mono text-[10px] px-2 py-0.5 rounded border font-semibold ${
+                        lbl === 'MOCK'
+                          ? 'bg-red-50 text-red-700 border-red-300'
+                          : 'bg-steel-tint text-steel border-steel-border'
+                      }`}
+                    >
+                      {lbl}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <button
             onClick={onOpenCapabilities}

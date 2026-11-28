@@ -283,6 +283,11 @@ export const AppShell: React.FC<AppShellProps> = ({
               <span id="headerActiveCaseId" className="font-mono font-semibold text-slate-800">
                 {activeCase.caseId}
               </span>
+              {activeCase.served_from_demo_pack && (
+                <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase tracking-tight">
+                  precomputed demo result
+                </span>
+              )}
               <span className="h-3.5 w-px bg-hairline"></span>
               <span
                 id="headerActiveCaseStatus"

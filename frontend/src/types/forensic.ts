@@ -46,6 +46,7 @@ export interface Frame {
   quality_score: number;
   reliability: 'High' | 'Medium' | 'Low';
   flags: string[];
+  flag_scores?: Record<string, number> | null;
   enhanced: boolean;
   enhancement: Enhancement | null;
   metrics: Metrics;
@@ -66,6 +67,7 @@ export interface PipelineResult {
   link_reason?: string | null;
   selection_reason?: string | null;
   timings_ms?: Record<string, number> | null;
+  served_from_demo_pack?: boolean;
 }
 
 export interface AuditEntry {
@@ -164,6 +166,7 @@ export interface CaseRecord {
   notes?: string;
   videoUrl?: string;
   clipId?: string;
+  served_from_demo_pack?: boolean;
 }
 
 export interface FrameExtractRequest {
@@ -184,6 +187,10 @@ export interface FaceSearchMatch {
   timestamp_sec: number;
   original_similarity: number;
   enhanced_similarity?: number;
+  similarity_secondary?: number;
+  delta?: number;
+  warning?: string;
+  reliability?: 'High' | 'Medium' | 'Low';
   thumbnail_url: string;
   location?: string;
   atm_id?: string;

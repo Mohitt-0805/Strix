@@ -29,7 +29,10 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
   const [selectedCandIdx, setSelectedCandIdx] = useState<number>(activeCase.primaryCandidateIdx || 0);
 
   // Addendum Tools: active tab / modal state
-  const [activeForensicTool, setActiveForensicTool] = useState<'standard' | 'crop_enhance' | 'face_search' | 'extract_frames'>('standard');
+  const [activeForensicTool, setActiveForensicTool] = useState<
+    'standard' | 'crop_enhance' | 'face_search' | 'extract_frames' | 'evidence_sheet'
+  >('standard');
+  const [evidenceFrameIds, setEvidenceFrameIds] = useState<(string | number)[]>([1]);
 
   // Tool 1: Extract Frames State
   const [extractStart, setExtractStart] = useState<number>(10.0);
@@ -259,7 +262,7 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
       <div className="bg-status-amberBg border border-status-amberBorder rounded-md px-3.5 py-1.5 flex items-center justify-between text-xs text-slate-800">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-status-amber">MANDATORY PROTOCOL:</span>
-          <span>Possible matches only. A human investigator must verify all algorithmic findings.</span>
+          <span>Possible matches only. A human investigator must verify every result.</span>
         </div>
         <span className="font-mono text-[10px] text-slate-500 font-semibold uppercase">ISO/IEC 27037 Standard</span>
       </div>
@@ -272,6 +275,11 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
               <span id="inspCaseId" className="font-mono text-base font-semibold text-slate-900">
                 {currentCase.caseId}
               </span>
+              {currentCase.served_from_demo_pack && (
+                <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase tracking-tight">
+                  precomputed demo result
+                </span>
+              )}
               <span className="text-slate-300">/</span>
               <span id="inspTxnId" className="font-mono text-xs font-medium text-steel">
                 {currentCase.txnId}
@@ -352,6 +360,14 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
               }`}
             >
               Extract Frames
+            </button>
+            <button
+              onClick={() => setActiveForensicTool('evidence_sheet')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                activeForensicTool === 'evidence_sheet' ? 'bg-white text-steel font-semibold shadow-sm' : 'hover:text-slate-900'
+              }`}
+            >
+              Evidence Sheet
             </button>
           </div>
 
@@ -615,18 +631,77 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
                     </div>
                   </div>
 
-                  <div className="mt-3 pt-3 border-t border-hairline flex flex-wrap items-center justify-between gap-2">
-                    <span id="candPoseMeta" className="font-mono text-[11px] text-slate-600">
-                      t={selectedCand.time.toFixed(1)}s &bull; Yaw: {selectedCand.yaw}&deg; &bull; Pitch: {selectedCand.pitch}&deg;
-                    </span>
-                    <button
-                      id="btnOverridePrimary"
-                      onClick={handleSetPrimary}
-                      disabled={selectedCandIdx === currentCase.primaryCandidateIdx}
-                      className="px-2.5 py-1 text-[11px] font-medium border border-steel text-steel hover:bg-steel hover:text-white rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Set as Primary Frame
-                    </button>
+                  {/* Reliability and Flags with model estimate */}
+                  <div className="mt-3 pt-3 border-t border-hairline space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-700">Reliability:</span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border uppercase ${
+                            (selectedCand.reliability || 'High') === 'High'
+                              ? 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder'
+                              : (selectedCand.reliability || 'High') === 'Medium'
+                              ? 'bg-status-amberBg text-status-amber border-status-amberBorder'
+                              : 'bg-status-crimsonBg text-status-crimson border-status-crimsonBorder'
+                          }`}
+                        >
+                          {selectedCand.reliability || 'High'}
+                        </span>
+                      </div>
+                      <span id="candPoseMeta" className="font-mono text-[11px] text-slate-600">
+                        t={selectedCand.time.toFixed(1)}s &bull; Yaw: {selectedCand.yaw}&deg; &bull; Pitch: {selectedCand.pitch}&deg;
+                      </span>
+                    </div>
+
+                    {/* Flags with flag_scores as (model estimate) */}
+                    {selectedCand.flag_scores && Object.keys(selectedCand.flag_scores).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[10px] font-mono uppercase text-slate-500 font-medium">Flags:</span>
+                        {Object.entries(selectedCand.flag_scores).map(([flag, score]) => (
+                          <span
+                            key={flag}
+                            className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700"
+                          >
+                            <span className="font-semibold">{flag.replace('_', ' ')}</span>: {score}{' '}
+                            <span className="font-sans text-[9px] text-slate-500 italic">(model estimate)</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Secondary (Enhanced) Score and Delta Warning */}
+                    <div className="p-2 bg-canvas border border-hairline rounded flex flex-wrap items-center justify-between text-xs font-mono">
+                      <div>
+                        <span className="text-slate-500">Raw Quality: </span>
+                        <span className="font-semibold text-slate-800">{(selectedCand.score / 100).toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Secondary (Enhanced): </span>
+                        <span className="font-semibold text-steel">
+                          {selectedCand.secondary_score !== undefined
+                            ? selectedCand.secondary_score.toFixed(2)
+                            : (selectedCand.score / 100).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedCand.secondary_score !== undefined &&
+                      Math.abs(selectedCand.secondary_score - selectedCand.score / 100) > 0.15 && (
+                        <div className="p-2 bg-status-crimsonBg border border-status-crimsonBorder text-status-crimson text-[11px] rounded font-medium">
+                          🚨 Enhancement changed the result (&gt;0.15 delta). Treat with caution.
+                        </div>
+                      )}
+
+                    <div className="flex items-center justify-end pt-1">
+                      <button
+                        id="btnOverridePrimary"
+                        onClick={handleSetPrimary}
+                        disabled={selectedCandIdx === currentCase.primaryCandidateIdx}
+                        className="px-2.5 py-1 text-[11px] font-medium border border-steel text-steel hover:bg-steel hover:text-white rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Set as Primary Frame
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -783,6 +858,15 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
           {/* TOOL VIEW: CROSS-CLIP FACE SEARCH */}
           {activeForensicTool === 'face_search' && (
             <div className="bg-white border border-hairline rounded-md p-4 space-y-4">
+              {/* Mandatory Notice */}
+              <div className="bg-status-amberBg border border-status-amberBorder rounded p-2.5 text-xs text-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-status-amber">MANDATORY PROTOCOL:</span>
+                  <span>Possible matches only. A human investigator must verify every result.</span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500 font-semibold uppercase">ISO/IEC 27037</span>
+              </div>
+
               <div className="flex items-center justify-between border-b border-hairline pb-2.5">
                 <div>
                   <h3 className="text-xs font-semibold text-slate-900">Cross-Clip Face Cosine Similarity Search</h3>
@@ -811,38 +895,171 @@ export const CaseInspectorView: React.FC<CaseInspectorViewProps> = ({ activeCase
               </div>
 
               {searchOnlyEnhanced && (
-                <div className="p-2.5 bg-status-amberBg border border-status-amberBorder text-status-amber rounded text-xs">
-                  ⚠️ <strong>Warning:</strong> Query based on ENHANCED image. Low biometric evidentiary reliability.
+                <div className="p-2.5 bg-status-amberBg border border-status-amberBorder text-status-amber rounded text-xs font-semibold">
+                  ⚠️ based on ENHANCED image, low reliability
                 </div>
               )}
 
               {/* Matches List */}
               <div className="space-y-2 max-h-[360px] overflow-y-auto">
-                {searchMatches.map((m) => (
-                  <div key={m.match_id} className="p-3 bg-canvas border border-hairline rounded-md space-y-2">
-                    <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="font-mono text-slate-900">{m.match_id}</span>
-                      <span className="text-status-emerald font-mono">Similarity: {(m.original_similarity * 100).toFixed(1)}%</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 font-mono">
-                      Clip: {m.clip_id} &bull; t={m.timestamp_sec}s &bull; {m.location}
-                    </div>
+                {searchMatches.map((m) => {
+                  const secondaryVal = m.enhanced_similarity ?? m.similarity_secondary ?? m.original_similarity;
+                  const deltaVal = Math.abs(secondaryVal - m.original_similarity);
+                  const isDeltaLarge = deltaVal > 0.15 || Boolean(m.warning) || Boolean(m.flag_warning);
 
-                    {/* Disparity Warning if delta > 0.15 */}
-                    {m.enhanced_similarity && Math.abs(m.enhanced_similarity - m.original_similarity) > 0.15 && (
-                      <div className="p-2 bg-status-crimsonBg border border-status-crimsonBorder text-status-crimson text-[11px] rounded font-medium">
-                        🚨 Enhancement changed the similarity score by{' '}
-                        {Math.abs(m.enhanced_similarity - m.original_similarity).toFixed(2)} (&gt; 0.15). Treat with caution.
+                  return (
+                    <div key={m.match_id} className="p-3 bg-canvas border border-hairline rounded-md space-y-2">
+                      <div className="flex items-center justify-between text-xs font-semibold">
+                        <span className="font-mono text-slate-900">{m.match_id}</span>
+                        <span
+                          className={`font-mono text-[10px] px-2 py-0.5 rounded border uppercase ${
+                            (m.reliability || 'High') === 'High'
+                              ? 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder'
+                              : 'bg-status-amberBg text-status-amber border-status-amberBorder'
+                          }`}
+                        >
+                          Reliability: {m.reliability || 'High'}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {/* Primary vs Secondary (Enhanced) Score */}
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-white p-2 border border-hairline rounded">
+                        <div>
+                          <span className="text-slate-500">Original Similarity: </span>
+                          <span className="font-semibold text-slate-900">{(m.original_similarity * 100).toFixed(1)}%</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Secondary (Enhanced): </span>
+                          <span className="font-semibold text-steel">{(secondaryVal * 100).toFixed(1)}%</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        Clip: {m.clip_id} &bull; t={m.timestamp_sec}s &bull; {m.location}
+                      </div>
+
+                      {/* Disparity Warning if delta > 0.15 */}
+                      {isDeltaLarge && (
+                        <div className="p-2 bg-status-crimsonBg border border-status-crimsonBorder text-status-crimson text-[11px] rounded font-medium">
+                          🚨 Enhancement changed the result (&gt;0.15 delta). Treat with caution.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {searchMatches.length === 0 && !isSearching && (
                   <div className="text-center py-8 text-xs text-slate-400 font-mono">
                     Click "Search Network" to run InsightFace 512-d similarity against indexed ATM clips.
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* TOOL VIEW: EVIDENCE SHEET */}
+          {activeForensicTool === 'evidence_sheet' && (
+            <div className="bg-white border border-hairline rounded-md p-4 space-y-4">
+              {/* Mandatory Notice */}
+              <div className="bg-status-amberBg border border-status-amberBorder rounded p-2.5 text-xs text-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-status-amber">MANDATORY PROTOCOL:</span>
+                  <span>Possible matches only. A human investigator must verify every result.</span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500 font-semibold uppercase">Evidence Sheet</span>
+              </div>
+
+              <div className="flex items-center justify-between border-b border-hairline pb-2.5">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-semibold text-slate-900">Forensic Evidence Dossier</h3>
+                    {currentCase.served_from_demo_pack && (
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 uppercase">
+                        precomputed demo result
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">Curated evidentiary frames for court export & chain-of-custody</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    await api.addFramesToEvidence(currentCase.caseId, [selectedCand.id]);
+                    if (!evidenceFrameIds.includes(selectedCand.id)) {
+                      setEvidenceFrameIds((prev) => [...prev, selectedCand.id]);
+                    }
+                    onAuditAction('Evidence Added', currentCase.caseId, `Added Frame #${selectedCand.id} to Evidence Sheet`);
+                  }}
+                  className="px-3 py-1 bg-white border border-steel text-steel text-xs font-semibold rounded hover:bg-steel-tint transition-colors"
+                >
+                  + Add Current Frame
+                </button>
+              </div>
+
+              {/* Evidentiary Frames List */}
+              <div className="space-y-3 max-h-[320px] overflow-y-auto">
+                {currentCase.candidates
+                  .filter((c) => evidenceFrameIds.includes(c.id))
+                  .map((c) => (
+                    <div key={c.id} className="p-3 bg-canvas border border-hairline rounded-md space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-semibold text-slate-900">Frame #{c.id} ({c.label})</span>
+                          <span
+                            className={`font-mono text-[10px] px-1.5 py-0.5 rounded border uppercase ${
+                              (c.reliability || 'High') === 'High'
+                                ? 'bg-status-emeraldBg text-status-emerald border-status-emeraldBorder'
+                                : 'bg-status-amberBg text-status-amber border-status-amberBorder'
+                            }`}
+                          >
+                            Reliability: {c.reliability || 'High'}
+                          </span>
+                        </div>
+                        <span className="font-mono text-xs font-semibold text-status-emerald">Quality: {c.score}/100</span>
+                      </div>
+
+                      {/* Flags with model estimate */}
+                      {c.flag_scores && Object.keys(c.flag_scores).length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-[10px] font-mono uppercase text-slate-500">Flags:</span>
+                          {Object.entries(c.flag_scores).map(([flag, score]) => (
+                            <span
+                              key={flag}
+                              className="font-mono text-[10px] px-2 py-0.5 rounded bg-white border border-hairline text-slate-700"
+                            >
+                              <span className="font-semibold">{flag.replace('_', ' ')}</span>: {score}{' '}
+                              <span className="font-sans text-[9px] text-slate-500 italic">(model estimate)</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Secondary (Enhanced) Score Readout */}
+                      <div className="flex items-center justify-between text-xs font-mono bg-white p-1.5 border border-hairline rounded">
+                        <span>Raw Score: {(c.score / 100).toFixed(2)}</span>
+                        <span className="text-steel font-semibold">
+                          Secondary (Enhanced): {c.secondary_score !== undefined ? c.secondary_score.toFixed(2) : (c.score / 100).toFixed(2)}
+                        </span>
+                      </div>
+
+                      {c.secondary_score !== undefined && Math.abs(c.secondary_score - c.score / 100) > 0.15 && (
+                        <div className="p-1.5 bg-status-crimsonBg border border-status-crimsonBorder text-status-crimson text-[11px] rounded font-medium">
+                          🚨 Enhancement changed the result (&gt;0.15 delta). Treat with caution.
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+
+              <button
+                onClick={handleExportDossier}
+                className="w-full py-2 bg-steel hover:bg-steel-hover text-white text-xs font-semibold rounded flex items-center justify-center gap-2 transition-colors shadow-sm"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Download ReportLab PDF Evidence Dossier</span>
+              </button>
             </div>
           )}
 
