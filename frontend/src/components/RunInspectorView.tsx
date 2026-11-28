@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop';
 import { ReactCompareSlider } from 'react-compare-slider';
-import { RunResult, ClipOut, Frame, PublicConfig, Enhancement } from '@/types/forensic';
+import { RunResult, ClipOut, Frame, PublicConfig, Enhancement, SearchResult, SearchMatch } from '@/types/forensic';
 import { api, getMediaUrl } from '@/lib/api';
 
 export interface RunInspectorViewProps {
@@ -10,6 +10,8 @@ export interface RunInspectorViewProps {
   publicConfig?: PublicConfig | null;
   onAuditAction: (action: string, refId: string, details: string) => void;
   onNavigate?: (view: string) => void;
+  onSelectClip?: (clip: ClipOut) => void;
+  onSelectRun?: (runId: string | number) => void;
 }
 
 export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
@@ -18,6 +20,8 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
   publicConfig,
   onAuditAction,
   onNavigate,
+  onSelectClip,
+  onSelectRun,
 }) => {
   // Best frames in exact API order
   const bestFrames: Frame[] = runResult?.best_frames || [];
@@ -41,6 +45,18 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
     runResult?.selected_frame_ids || (bestFrames.length > 0 ? [bestFrames[0].frame_id] : [])
   );
   const [isUpdatingSelection, setIsUpdatingSelection] = useState<boolean>(false);
+
+  // Face search state
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [searchingFrameId, setSearchingFrameId] = useState<string | number | null>(null);
+  const [searchedFrame, setSearchedFrame] = useState<Frame | null>(null);
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<SearchMatch | null>(null);
+
+  // PDF Export state
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   // Enhancement dialog state
   const [enhanceModalOpen, setEnhanceModalOpen] = useState<boolean>(false);
@@ -277,6 +293,89 @@ export const RunInspectorView: React.FC<RunInspectorViewProps> = ({
       setEnhanceError(errorMsg);
     } finally {
       setIsEnhancing(false);
+    }
+  };
+
+  // Execute Cross-Clip Face Search
+  const handleExecuteFaceSearch = async (frame: Frame) => {
+    setIsSearching(true);
+    setSearchingFrameId(frame.frame_id);
+    setSearchError(null);
+    setSearchedFrame(frame);
+
+    try {
+      const res: SearchResult = await api.searchFace({
+        run_id: runId,
+        frame_id: frame.frame_id,
+        top_k: 10,
+        best_per_clip: true,
+      });
+      setSearchResult(res);
+      setSelectedMatch(res.matches && res.matches.length > 0 ? res.matches[0] : null);
+      onAuditAction(
+        'SEARCH_FACE',
+        evidenceId,
+        `Executed cross-clip face search for Frame #${frame.frame_id}. Found ${res.matches?.length || 0} candidate matches.`
+      );
+    } catch (err: any) {
+      console.error('Face search failed:', err);
+      const resData = err?.response?.data || err;
+      const msg = resData?.detail || resData?.message || err?.message || 'Face search failed.';
+      setSearchError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      setSearchResult(null);
+      setSelectedMatch(null);
+    } finally {
+      setIsSearching(false);
+      setSearchingFrameId(null);
+    }
+  };
+
+  // Export ISO/IEC 27037 Evidence PDF Dossier
+  const handleExportPdf = async () => {
+    if (selectedFrameIds.length === 0) return;
+    setIsExportingPdf(true);
+    setPdfError(null);
+
+    try {
+      const pdfBlob = await api.downloadEvidencePdf(runId, searchResult?.search_id);
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EV-${runId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      onAuditAction(
+        'DOWNLOAD_EVIDENCE_PDF',
+        evidenceId,
+        `Downloaded ISO/IEC 27037 evidence dossier EV-${runId}.pdf (${selectedFrameIds.length} frames selected${
+          searchResult ? `, search #${searchResult.search_id}` : ''
+        })`
+      );
+    } catch (err: any) {
+      console.error('Evidence PDF export failed:', err);
+      const resData = err?.response?.data || err;
+      const msg = resData?.detail || resData?.message || err?.message || 'Evidence PDF export failed.';
+      setPdfError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  // Open Matched Clip in Inspector
+  const handleOpenClip = async (match: SearchMatch) => {
+    try {
+      const targetClip = await api.getClip(match.clip_id);
+      if (match.run_id && onSelectRun) {
+        onSelectRun(match.run_id);
+      } else if (onSelectClip) {
+        onSelectClip(targetClip);
+      }
+      onNavigate?.('inspector');
+    } catch (err: any) {
+      console.error('Failed to open clip:', err);
     }
   };
 
